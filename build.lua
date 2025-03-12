@@ -1,4 +1,4 @@
-local djot = require("./djot")
+local djot = require("djot")
 
 local handle = io.open(("./%s.dj"):format(arg[1]), "r") or {}
 local input = handle:read("*a")

@@ -5,6 +5,20 @@ local M = {}
 local htmlwinnr = nil
 local htmlbufnr = -1
 
+local function dedup_list(t)
+  local dedup = {}
+  return vim
+    .iter(t)
+    :filter(function(v)
+      if dedup[v] then
+        return false
+      end
+      dedup[v] = true
+      return true
+    end)
+    :totable()
+end
+
 local function highlight_code(code, lang)
   local tohtml = require("tohtml").tohtml
   if htmlwinnr == nil or not vim.api.nvim_win_is_valid(htmlwinnr) then
@@ -31,10 +45,9 @@ local function highlight_code(code, lang)
     if s == "</style>" then
       break
     end
-    local match = s:find("font%-family") or s:find("^%-spell")
-    s, _ = s:gsub("^body", "figure") -- todo not sure
+    local match = s:find("font%-family") or s:find("^%.%-spell") or s:find("^body")
     if match == nil then
-      styles[s] = true
+      table.insert(styles, s)
     end
   end
 
@@ -47,31 +60,40 @@ local function highlight_code(code, lang)
     pre_start = pre_start + 1
   end
 
-  local rendered = { html[pre_start] }
+  local blocks = {}
   for i = pre_start + 1, #html do
     local s = html[i]
-
-    table.insert(rendered, s)
     if s == "</pre>" then
       break
     end
+
+    table.insert(blocks, s)
   end
 
-  rendered = vim
-    .iter(rendered)
-    :map(function(v)
-      if v == "<pre>" or v == "</pre>" then
-        return v
-      end
+  if blocks[#blocks] == "" then
+    blocks[#blocks] = nil
+  end
 
-      if v == "" then
-        return nil
+  table.insert(blocks, 1, "<code>")
+  table.insert(blocks, 1, "<pre>")
+  table.insert(blocks, 1, '<figure class="code-block">')
+
+  table.insert(blocks, "</code>")
+  table.insert(blocks, "</pre>")
+  table.insert(blocks, "</figure>")
+
+  local rendered = vim.trim(vim
+    .iter(blocks)
+    :map(function(v)
+      if v:match("^%<%/?code%>") or v:match("^%<%/?pre%>") or v:match("^%<%/?figure.*%>") then
+        return v
       end
 
       return '<span class="line">' .. v .. "</span>"
     end)
-    :totable()
-  table.insert(rendered, 1, "<figure>")
+    :join("\n"))
+
+  styles = dedup_list(styles)
 
   return rendered, styles
 end
@@ -83,79 +105,130 @@ local default_opts = {
   pages_dir = "pages/",
   template_dir = "templates/",
   static_dir = "static/",
+  ---@type table<string, string>
+  templates = {},
 }
+
+function M.clean(opts)
+  vim.fs.rm(opts.out_dir, { recursive = true, force = true })
+end
 
 ---@param opts? static.Config
 function M.build(opts)
   if not opts then
     opts = vim.tbl_extend("keep", default_opts, {})
   end
-  local cwd = vim.cmd.pwd()
+
+  if
+    vim.fn.isdirectory(opts.out_dir) == 1
+    and #vim.fn.glob(vim.fs.joinpath(opts.out_dir, "/*"), true, true) > 0
+  then
+    vim.print("removing old build dir...")
+  end
+
+  -- todo what to do with templates
+  for f, t in vim.fs.dir(opts.template_dir) do
+    if t == "file" and f:match("%.html$") then
+      local file, err = io.open(vim.fs.joinpath(opts.template_dir, f))
+      if not file then
+        vim.print(("error: loading template '%s': %s"):format(f, err))
+        return
+      end
+      opts.templates.base = file:read("a")
+      file:close()
+    end
+  end
 
   local queue = {
     "/index",
-    -- "/404",
+    "/404",
   }
-
   local visited = { ["/"] = true }
-  local code_style = nil
 
   while #queue > 0 do
-    local path = table.remove(queue, #queue)
-    path = vim.fs.joinpath(opts.pages_dir, path)
-    if path:sub(#path, #path) == "/" then
-      path = path:sub(1, #path - 1)
+    local url_path = table.remove(queue, #queue)
+    local in_path = vim.fs.joinpath(opts.pages_dir, url_path)
+    if in_path:sub(#in_path, #in_path) == "/" then
+      in_path = in_path:sub(1, #in_path - 1)
     end
 
-    local file, err = io.open(path .. ".dj", "r")
+    local file, err = io.open(in_path .. ".dj", "r")
     if not file then
-      vim.print(("error: on '%s': %s"):format(path, err))
+      vim.print(("error: on '%s': %s"):format(in_path, err))
       return
     end
 
-    local content = file:read("a") or ""
+    local raw_content = file:read("a") or ""
     file:close()
 
-    local document = djot.parse(content, false, function(a)
+    local document = djot.parse(raw_content, false, function(a)
       vim.print("in warn: ", a)
     end)
 
     local metadata = {}
-    -- todo do filters need to be rebuilt every file
+    local code_styles = {}
     local filters = {
       {
         link = function(element)
-          vim.print(element)
+          if element.destination and element.destination:sub(1, 1) == "/" then
+            if
+              #element.destination > 1
+              and element.destination:sub(#element.destination, #element.destination) == "/"
+            then
+              element.destination = element.destination:sub(1, #element.destination - 1)
+            end
+
+            if visited[element.destination] ~= true then
+              visited[element.destination] = true
+              table.insert(queue, element.destination)
+            end
+          end
         end,
         code_block = function(element)
           element.tag = "raw_block"
           element.format = "html"
           local code, styles = highlight_code(vim.trim(element.text), element.lang)
-          code_style = vim.tbl_extend("keep", code_style or {}, styles)
-          element.text = vim.trim(table.concat(code, "\n"))
+          element.text = code
+          for _, s in ipairs(styles) do
+            table.insert(code_styles, s)
+          end
+        end,
+        raw_block = function(element)
+          if element.format == "meta" then
+            for line in element.text:gmatch("[^\n]+") do
+              local key, value = line:match("(%w+) *= *(.+)$")
+              metadata[key] = value
+            end
+          end
         end,
       },
     }
 
     djot.filter.apply_filter(document, filters)
-    metadata.extra_styles = code_style
+    if #code_styles > 0 then
+      -- todo don't do all this duplicate work
+      code_styles = dedup_list(code_styles)
+      table.insert(code_styles, 1, "<style>")
+      table.insert(code_styles, "</style>")
+    end
+    metadata.inline_style = table.concat(code_styles, "\n")
 
     local rendered = djot.render_html(document)
-    vim.print("rendered:::::::", rendered)
-    local out = io.open(path .. ".html", "w") or {}
-    rendered = ([[<!doctype html>
-<head>
-<style>
-%s
-</style>
-</head>
-<body>
-%s
-</body>
-</html>]]):format(table.concat(vim.tbl_keys(metadata.extra_styles), "\n"), rendered)
+    rendered = opts.templates.base:gsub("::slot::", rendered)
+    rendered = rendered:gsub("::([%w_]+)::", metadata)
+
+    local out_name = vim.fs.joinpath(opts.out_dir, url_path .. ".html")
+    vim.fn.mkdir(vim.fs.dirname(out_name), "p")
+    local out = io.open(out_name, "w") or {}
     out:write(rendered)
-    vim.print("metadata::::::", metadata)
     out:close()
+  end
+
+  if pcall(require, "plenary.path") then
+    local Path = require("plenary.path")
+    Path:new(opts.static_dir):copy({ destination = opts.out_dir, recursive = true })
+  else
+    vim.print("TODO: copy static files without plenary")
   end
 end
 
