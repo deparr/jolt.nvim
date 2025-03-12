@@ -19,6 +19,28 @@ local function dedup_list(t)
     :totable()
 end
 
+local function load_file(path)
+  local f, err = io.open(path, "r")
+  if not f then
+    error(("load_file: '%s': %s"):format(path, err))
+  end
+
+  local c = f:read("a")
+  f:close()
+  return c
+end
+
+local function write_file(path, content)
+  local f, err = io.open(path, "w")
+  if not f then
+    error(("write_file: '%s': %s"):format(path, err))
+  end
+
+  f:write(content)
+  f:close()
+end
+
+
 local function highlight_code(code, lang)
   local tohtml = require("tohtml").tohtml
   if htmlwinnr == nil or not vim.api.nvim_win_is_valid(htmlwinnr) then
@@ -74,6 +96,10 @@ local function highlight_code(code, lang)
     blocks[#blocks] = nil
   end
 
+  for i, v in ipairs(blocks) do
+    blocks[i] = ('<span class="line">%s</span>'):format(v)
+  end
+
   table.insert(blocks, 1, "<code>")
   table.insert(blocks, 1, "<pre>")
   table.insert(blocks, 1, '<figure class="code-block">')
@@ -82,16 +108,7 @@ local function highlight_code(code, lang)
   table.insert(blocks, "</pre>")
   table.insert(blocks, "</figure>")
 
-  local rendered = vim.trim(vim
-    .iter(blocks)
-    :map(function(v)
-      if v:match("^%<%/?code%>") or v:match("^%<%/?pre%>") or v:match("^%<%/?figure.*%>") then
-        return v
-      end
-
-      return '<span class="line">' .. v .. "</span>"
-    end)
-    :join("\n"))
+  local rendered = vim.trim(vim.iter(blocks):join("\n"))
 
   styles = dedup_list(styles)
 
@@ -104,9 +121,15 @@ local default_opts = {
   out_dir = "build/",
   pages_dir = "pages/",
   template_dir = "templates/",
+  template_main_slot = "::slot::",
+  default_title = "Test-Site",
   static_dir = "static/",
   ---@type table<string, string>
   templates = {},
+  root_pages = {
+    "/index",
+    "/404",
+  },
 }
 
 function M.clean(opts)
@@ -126,7 +149,7 @@ function M.build(opts)
     vim.print("removing old build dir...")
   end
 
-  -- todo what to do with templates
+  -- todo how to deal with to do with templates
   for f, t in vim.fs.dir(opts.template_dir) do
     if t == "file" and f:match("%.html$") then
       local file, err = io.open(vim.fs.joinpath(opts.template_dir, f))
@@ -139,27 +162,17 @@ function M.build(opts)
     end
   end
 
-  local queue = {
-    "/index",
-    "/404",
-  }
+  ---@type table<string>
+  local queue = {}
+  for _, v in ipairs(opts.root_pages) do
+    table.insert(queue, v)
+  end
   local visited = { ["/"] = true }
 
   while #queue > 0 do
     local url_path = table.remove(queue, #queue)
-    local in_path = vim.fs.joinpath(opts.pages_dir, url_path)
-    if in_path:sub(#in_path, #in_path) == "/" then
-      in_path = in_path:sub(1, #in_path - 1)
-    end
 
-    local file, err = io.open(in_path .. ".dj", "r")
-    if not file then
-      vim.print(("error: on '%s': %s"):format(in_path, err))
-      return
-    end
-
-    local raw_content = file:read("a") or ""
-    file:close()
+    local raw_content = load_file(vim.fs.joinpath(opts.pages_dir, url_path .. ".dj"))
 
     local document = djot.parse(raw_content, false, function(a)
       vim.print("in warn: ", a)
@@ -211,17 +224,24 @@ function M.build(opts)
       table.insert(code_styles, 1, "<style>")
       table.insert(code_styles, "</style>")
     end
+
     metadata.inline_style = table.concat(code_styles, "\n")
+    metadata.title = metadata.title or opts.default_title
 
     local rendered = djot.render_html(document)
-    rendered = opts.templates.base:gsub("::slot::", rendered)
+    rendered = opts.templates.base:gsub(opts.template_main_slot, rendered)
     rendered = rendered:gsub("::([%w_]+)::", metadata)
 
-    local out_name = vim.fs.joinpath(opts.out_dir, url_path .. ".html")
-    vim.fn.mkdir(vim.fs.dirname(out_name), "p")
-    local out = io.open(out_name, "w") or {}
-    out:write(rendered)
-    out:close()
+    local out_dir = vim.fs.joinpath(opts.out_dir, url_path)
+    local out_path
+    if vim.fs.dirname(url_path) ~= "/" or not vim.tbl_contains(opts.root_pages, url_path) then
+      vim.fn.mkdir(out_dir, "p")
+      out_path = vim.fs.joinpath(out_dir, "index.html")
+    else
+      out_path = out_dir .. ".html"
+    end
+
+    write_file(out_path, rendered)
   end
 
   if pcall(require, "plenary.path") then
