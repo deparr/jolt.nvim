@@ -1,8 +1,13 @@
 local djot = require("djot")
+local config = require("static.config")
 
 local M = {}
 
-local htmlwinnr = nil
+M.setup = config.setup
+
+function M.watch() end
+
+local htmlwinnr = -1
 local htmlbufnr = -1
 
 local function dedup_list(t)
@@ -40,10 +45,9 @@ local function write_file(path, content)
   f:close()
 end
 
-
 local function highlight_code(code, lang)
   local tohtml = require("tohtml").tohtml
-  if htmlwinnr == nil or not vim.api.nvim_win_is_valid(htmlwinnr) then
+  if htmlwinnr == -1 or not vim.api.nvim_win_is_valid(htmlwinnr) then
     htmlbufnr = vim.api.nvim_create_buf(true, true)
     htmlwinnr = vim.api.nvim_open_win(htmlbufnr, false, { split = "right" })
   end
@@ -115,37 +119,20 @@ local function highlight_code(code, lang)
   return rendered, styles
 end
 
----@class static.Config
-local default_opts = {
-  in_dir = ".",
-  out_dir = "build/",
-  pages_dir = "pages/",
-  template_dir = "templates/",
-  template_main_slot = "::slot::",
-  default_title = "Test-Site",
-  static_dir = "static/",
-  ---@type table<string, string>
-  templates = {},
-  root_pages = {
-    "/index",
-    "/404",
-  },
-}
-
 function M.clean(opts)
   vim.fs.rm(opts.out_dir, { recursive = true, force = true })
 end
 
 ---@param opts? static.Config
 function M.build(opts)
-  if not opts then
-    opts = vim.tbl_extend("keep", default_opts, {})
-  end
+  opts = config.extend(opts)
 
+  -- todo this assumes the build dir already exists
   if
     vim.fn.isdirectory(opts.out_dir) == 1
     and #vim.fn.glob(vim.fs.joinpath(opts.out_dir, "/*"), true, true) > 0
   then
+    -- todo not actually removing files so no disk thrashing
     vim.print("removing old build dir...")
   end
 
@@ -183,7 +170,9 @@ function M.build(opts)
     local filters = {
       {
         link = function(element)
-          if element.destination and element.destination:sub(1, 1) == "/" then
+          local is_internal = element.destination and element.destination:match("^([#/])")
+          if is_internal then
+            -- internal links
             if
               #element.destination > 1
               and element.destination:sub(#element.destination, #element.destination) == "/"
@@ -191,10 +180,14 @@ function M.build(opts)
               element.destination = element.destination:sub(1, #element.destination - 1)
             end
 
-            if visited[element.destination] ~= true then
+            if is_internal == "/" and visited[element.destination] ~= true then
               visited[element.destination] = true
               table.insert(queue, element.destination)
             end
+          elseif element.destination then
+            -- external links
+            element.attr = element.attr or djot.ast.new_attributes()
+            element.attr.target = "_blank"
           end
         end,
         code_block = function(element)
@@ -214,6 +207,10 @@ function M.build(opts)
             end
           end
         end,
+        section = function(element)
+          element.attr.id = element.attr.id:lower()
+          -- todo header anchoring?
+        end
       },
     }
 
@@ -250,6 +247,12 @@ function M.build(opts)
   else
     vim.print("TODO: copy static files without plenary")
   end
+
+  if htmlwinnr > 0 then
+    vim.api.nvim_win_close(htmlwinnr, true)
+  end
+
+  vim.notify("built:\n" .. vim.inspect(vim.tbl_keys(visited)))
 end
 
 return M
