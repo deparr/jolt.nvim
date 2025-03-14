@@ -7,6 +7,9 @@
 - nvim has `:TOhtml` and treesitter
 - -> why shouldn't I use my editor to build my site?
 
+> [!CAUTION]
+> This is janky software I made for myself. Use carefully.
+
 ## workflow
 run something like:
 ```sh
