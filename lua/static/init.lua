@@ -133,14 +133,19 @@ local function hex_to_str(c)
   end
   return ("#%06x"):format(c)
 end
---- generates a style file for the current colorscheme
-local function generate_styles_for_colorscheme(hl_groups)
+
+local function get_hl_defs(hl_groups)
   local used_hls = {}
   for _, group in ipairs(hl_groups) do
     used_hls[group] = vim.api.nvim_get_hl(0, { name = group, link = false })
   end
+  return used_hls
+end
+
+--- generates a style file for the current colorscheme
+local function generate_styles_for_colorscheme(hl_groups)
   local out = {}
-  for name, hl in pairs(used_hls) do
+  for name, hl in pairs(hl_groups) do
     local line = {
       hl.underline and "underline" or nil,
       hl.strikethrough and "line-through" or nil,
@@ -166,19 +171,30 @@ end
 
 -- todo make this not *have* to rely on colorscheme cmd
 local function generate_code_styles(opts, hl_groups)
-  local restore = vim.g.colors_name or "default"
-  local restore_bg = vim.o.bg
-  vim.cmd("hi clear")
-  vim.o.bg = "light"
-  vim.cmd.colorscheme(opts.light_theme)
-  local light = generate_styles_for_colorscheme(hl_groups)
-  vim.cmd("hi clear")
-  vim.o.bg = "dark"
-  vim.cmd.colorscheme(opts.dark_theme)
-  local dark = generate_styles_for_colorscheme(hl_groups)
+  local light, dark
+  if type(opts.code_style) == "function" then
+    light = opts.code_style("light", hl_groups)
+    dark = opts.code_style("dark", hl_groups)
 
-  vim.o.bg = restore_bg
-  vim.cmd.colorscheme("tairiki")
+    light = generate_styles_for_colorscheme(light)
+    dark = generate_styles_for_colorscheme(dark)
+  else
+    local restore = opts.code_style.restore or "default"
+    local restore_bg = vim.o.bg
+    vim.cmd("hi clear")
+    vim.o.bg = "light"
+    vim.cmd.colorscheme(opts.code_style.light)
+    light = generate_styles_for_colorscheme(get_hl_defs(hl_groups))
+    vim.cmd("hi clear")
+    vim.o.bg = "dark"
+    vim.cmd.colorscheme(opts.code_style.dark)
+    dark = generate_styles_for_colorscheme(get_hl_defs(hl_groups))
+    if #vim.tbl_keys(vim.api.nvim_list_uis()) > 0 then
+      vim.o.bg = restore_bg
+      vim.cmd.colorscheme(restore)
+    end
+  end
+
 
   return ([[%s
 
@@ -231,7 +247,7 @@ function M.build(opts)
     local raw_content = load_file(vim.fs.joinpath(opts.pages_dir, url_path .. ".dj"))
 
     local document = djot.parse(raw_content, false, function(a)
-      vim.print("in warn: ", a)
+      vim.print("djot: ", a)
     end)
 
     local metadata = {}
@@ -240,7 +256,6 @@ function M.build(opts)
         link = function(element)
           local is_internal = element.destination and element.destination:match("^([#/])")
           if is_internal then
-            -- internal links
             if
               #element.destination > 1
               and element.destination:sub(#element.destination, #element.destination) == "/"
@@ -253,7 +268,6 @@ function M.build(opts)
               table.insert(queue, element.destination)
             end
           elseif element.destination then
-            -- external links
             if element.destination:match("^(https?):") then
               element.attr = element.attr or djot.ast.new_attributes()
               element.attr.target = "_blank"
@@ -284,8 +298,8 @@ function M.build(opts)
           -- todo header anchoring?
         end,
         image = function(element)
-          -- vim.print(element)
           -- todo I want to wrap images in figures
+          -- vim.print(element)
           -- element.tag = "raw_block"
           -- element.format = "html"
           -- local dest = element.destination
@@ -305,8 +319,8 @@ function M.build(opts)
       vim.api.nvim_win_close(htmlwinnr, true)
     end
 
-    metadata.inline_style = table.concat(code_styles, "\n")
     metadata.title = metadata.title or opts.default_title
+    metadata.description = metadata.description or metadata.title
 
     local rendered = djot.render_html(document)
     rendered = opts.templates.base:gsub(opts.template_main_slot, rendered)

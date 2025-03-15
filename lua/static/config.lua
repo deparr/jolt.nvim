@@ -13,8 +13,12 @@ M.defaults = {
     "/index",
     "/404",
   },
-  light_theme = "default",
-  dark_theme = "default",
+  ---@type { light: string, dark: string, restore: string } | fun(s: string): table
+  code_style = {
+    light = "default",
+    dark = "default",
+    restore = "default",
+  },
 }
 
 M.options = nil

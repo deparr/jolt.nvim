@@ -32,5 +32,9 @@ and boom! a static site is now available at `build/`
     - [ ] dark and light code colorschemes
 - components ??
 - templates
+- [ ] TOhtml renders multiline comments on a single line ( might be from
+  the .line wrapping I do) you can't just split on line, dang
+    - can you just throw a []u8 at treesitter and get a parse tree
+      back ???
 - [x] user command
 
