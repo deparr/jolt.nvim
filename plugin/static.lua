@@ -2,8 +2,13 @@ local static = require("static")
 local config = require("static.config")
 
 vim.api.nvim_create_user_command("StaticBuild", function(args)
-  static.build()
-end, { bar = true })
+  local a = vim.split(args.args, "%s+")
+  if a[1] == "static" then
+    static.copy_static()
+  else
+    static.build()
+  end
+end, { bar = true, nargs = "*" })
 
 -- todo put this into the 'server'
 vim.api.nvim_create_user_command("StaticWatch", function(args)

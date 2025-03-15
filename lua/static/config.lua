@@ -12,7 +12,9 @@ M.defaults = {
   root_pages = {
     "/index",
     "/404",
-  }
+  },
+  light_theme = "default",
+  dark_theme = "default",
 }
 
 M.options = nil

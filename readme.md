@@ -13,7 +13,7 @@
 ## workflow
 run something like:
 ```sh
-nvim --headless "+SomeConfigCommand | BuildSite"
+nvim --headless "+SomeConfigCommand | StaticBuild"
 ```
 and boom! a static site is now available at `build/`
 
@@ -29,6 +29,7 @@ and boom! a static site is now available at `build/`
         - [ ] how would this interact with tohtml ??
     - [ ] ability to build main css file from colorscheme
     - [ ] use something to serve the files over local server
+    - [ ] dark and light code colorschemes
 - components ??
 - templates
 - [x] user command
