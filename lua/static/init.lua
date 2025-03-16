@@ -349,6 +349,167 @@ function M.build(opts)
   vim.notify("built:\n" .. vim.inspect(vim.tbl_keys(visited)))
 end
 
+function M.filter(document, code_styles)
+  local metadata = {}
+  local filters = {
+    {
+      link = function(element)
+        local is_internal = element.destination and element.destination:match("^([#/])")
+        if is_internal then
+          if
+            #element.destination > 1
+            and element.destination:sub(#element.destination, #element.destination) == "/"
+          then
+            element.destination = element.destination:sub(1, #element.destination - 1)
+          end
+        elseif element.destination then
+          if element.destination:match("^(https?):") then
+            element.attr = element.attr or djot.ast.new_attributes()
+            element.attr.target = "_blank"
+          end
+        end
+      end,
+      code_block = function(element)
+        element.tag = "raw_block"
+        element.format = "html"
+        local code, styles = highlight_code(vim.trim(element.text), element.lang)
+        element.text = code
+        for _, s in ipairs(styles) do
+          if not vim.tbl_contains(code_styles, s) then
+            table.insert(code_styles, s)
+          end
+        end
+      end,
+      raw_block = function(element)
+        if element.format == "meta" then
+          for line in element.text:gmatch("[^\n]+") do
+            local key, value = line:match("(%w+) *=%s*(.+)$")
+            metadata[key] = value
+          end
+        end
+      end,
+      section = function(element)
+        element.attr.id = element.attr.id:lower()
+        -- todo header anchoring?
+      end,
+      image = function(element)
+        -- todo I want to wrap images in figures
+        -- element.tag = "raw_block"
+        -- element.format = "html"
+        -- local dest = element.destination
+        -- local alt = element.children[1].text
+        -- element.children = nil
+        -- element.text = ('<figure><img src="%s" alt="%s"></img></figure>'):format(dest, alt)
+      end,
+    },
+  }
+  djot.filter.apply_filter(document, filters)
+  return metadata
+end
+
+function M.build(opts)
+  opts = config.extend(opts)
+
+  if vim.fn.isdirectory(opts.out_dir) == 1 then
+    if #vim.fn.glob(vim.fs.joinpath(opts.out_dir, "/*"), true, true) > 0 then
+      -- todo not actually removing files so no disk thrashing
+      -- M.clean()
+    end
+  else
+    vim.fn.mkdir(opts.out_dir, "p", "")
+  end
+
+  local pages = {}
+  local templates = {}
+  local static = {}
+
+  for file, type in vim.fs.dir(opts.content_dir, { depth = opts.depth }) do
+    if type == "directory" then
+    elseif type == "file" then
+      local ext = vim.fn.fnamemodify(file, ":e")
+      local basename = vim.fn.fnamemodify(file, ":t:r")
+      local path_noext = vim.fn.fnamemodify(file, ":r")
+      local real_path = vim.fs.joinpath(opts.content_dir, file)
+
+      if ext == "dj" then
+        -- build content
+        local raw = load_file(real_path)
+        local ast = djot.parse(raw, false, function(a)
+          log("djot: ", a)
+        end)
+        pages[path_noext] = ast
+      elseif ext == "html" then
+        -- read template
+        local templ = load_file(real_path)
+        templates[basename] = templ
+      else
+        static[file] = true
+      end
+    end
+  end
+
+  local code_styles = {}
+  local rendered_pages = {}
+  for url, document in pairs(pages) do
+    local metadata = M.filter(document, code_styles)
+    metadata.title = metadata.title or opts.default_title
+    metadata.template = metadata.template or opts.default_template
+    metadata.description = metadata.description or metadata.title
+
+    -- todo nested templates
+    local rendered = djot.render_html(document)
+    rendered = templates[metadata.template]:gsub(opts.template_main_slot, rendered)
+    rendered = rendered:gsub("::([%w_]+)::", metadata)
+
+    local out_path
+    -- speical cases
+    -- index -> index.html
+    -- 404 -> 404.html
+    if url == "404" or url == "index" then
+      out_path = vim.fs.joinpath(opts.out_dir, url .. ".html")
+    else
+      out_path = vim.fs.joinpath(opts.out_dir, url, "index.html")
+    end
+
+    rendered_pages[out_path] = rendered
+  end
+
+  if #code_styles > 0 then
+    local hl_groups = vim.iter(code_styles):map(class_name_to_hl_name):totable()
+    local hl_styles = generate_code_styles(opts, hl_groups)
+    static["highlight.css"] = hl_styles
+  end
+
+  if vim.api.nvim_buf_is_valid(htmlbufnr) then
+    vim.api.nvim_buf_delete(htmlbufnr, { force = true })
+  end
+  if vim.api.nvim_win_is_valid(htmlwinnr) then
+    vim.api.nvim_win_close(htmlwinnr, true)
+  end
+
+  for file, content in pairs(rendered_pages) do
+    local parent = vim.fn.fnamemodify(file, ":h")
+    vim.fn.mkdir(parent, "p")
+    write_file(file, content)
+  end
+
+  for file, content in pairs(static) do
+    local out = vim.fs.joinpath(opts.out_dir, file)
+    if type(content) == "boolean" and content then
+      local in_ = vim.fs.joinpath(opts.content_dir, file)
+      local suc, err = vim.uv.fs_copyfile(in_, out, nil)
+      if not suc then
+        log(err)
+      end
+    elseif type(content) == "string" then
+      write_file(out, content)
+    end
+  end
+
+  log(("build: %s"):format(vim.inspect(vim.tbl_keys(rendered_pages))))
+  log(("build: %d pages"):format(#vim.tbl_keys(rendered_pages)))
+end
+
 function M.copy_static(opts)
   if not opts then
     opts = config.extend()

@@ -3,17 +3,20 @@ local M = {}
 ---@class static.Config
 M.defaults = {
   out_dir = "build/",
-  pages_dir = "pages/",
-  template_dir = "templates/",
+  -- pages_dir = "pages/",
+  -- template_dir = "templates/",
+  -- static_dir = "static/",
+  content_dir = "content/",
+  depth = 10,
   template_main_slot = "::slot::",
-  static_dir = "static/",
   default_title = "Test-Site",
+  default_template = "base",
   templates = {},
   root_pages = {
     "/index",
     "/404",
   },
-  ---@type { light: string, dark: string, restore: string } | fun(s: string): table
+  ---@type { light: string?, dark: string?, restore: string? } | fun(s: string): table
   code_style = {
     light = "default",
     dark = "default",
