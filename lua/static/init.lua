@@ -5,6 +5,17 @@ local M = {}
 
 M.setup = config.setup
 
+local log_prefix = "static "
+local headless_log = function(msg)
+  vim.print(log_prefix .. msg)
+end
+
+local interactive_log = function(msg, l)
+  vim.notify(log_prefix .. msg, l or vim.log.levels.INFO)
+end
+
+local log = #vim.tbl_keys(vim.api.nvim_list_uis()) > 0 and interactive_log or headless_log
+
 function M.watch() end
 
 local function dedup_list(t)
@@ -195,7 +206,6 @@ local function generate_code_styles(opts, hl_groups)
     end
   end
 
-
   return ([[%s
 
 @media(prefers-color-scheme: light) {
@@ -204,11 +214,15 @@ local function generate_code_styles(opts, hl_groups)
 end
 
 function M.clean(opts)
-  vim.fs.rm(opts.out_dir, { recursive = true, force = true })
+  if opts.out_dir ~= "~" or opts.out_dir ~= "/" then
+    vim.fs.rm(opts.out_dir, { recursive = true, force = true })
+  else
+    log(("wont remove out dir '%s'"):format(opts.out_dir), vim.log.levels.ERROR)
+  end
 end
 
 ---@param opts? static.Config
-function M.build(opts)
+function M.tree_walk(opts)
   opts = config.extend(opts)
 
   -- todo this assumes the build dir already exists
@@ -217,19 +231,13 @@ function M.build(opts)
     and #vim.fn.glob(vim.fs.joinpath(opts.out_dir, "/*"), true, true) > 0
   then
     -- todo not actually removing files so no disk thrashing
-    vim.print("removing old build dir...")
+    -- log("removing old build dir...")
   end
 
-  -- todo how to deal with to do with templates
+  local templates = {}
   for f, t in vim.fs.dir(opts.template_dir) do
     if t == "file" and f:match("%.html$") then
-      local file, err = io.open(vim.fs.joinpath(opts.template_dir, f))
-      if not file then
-        vim.print(("error: loading template '%s': %s"):format(f, err))
-        return
-      end
-      opts.templates.base = file:read("a")
-      file:close()
+      templates.base = load_file(vim.fs.joinpath(opts.template_dir, f))
     end
   end
 
@@ -247,7 +255,7 @@ function M.build(opts)
     local raw_content = load_file(vim.fs.joinpath(opts.pages_dir, url_path .. ".dj"))
 
     local document = djot.parse(raw_content, false, function(a)
-      vim.print("djot: ", a)
+      log("djot: ", a)
     end)
 
     local metadata = {}
@@ -299,7 +307,6 @@ function M.build(opts)
         end,
         image = function(element)
           -- todo I want to wrap images in figures
-          -- vim.print(element)
           -- element.tag = "raw_block"
           -- element.format = "html"
           -- local dest = element.destination
@@ -519,7 +526,7 @@ function M.copy_static(opts)
     local Path = require("plenary.path")
     Path:new(opts.static_dir):copy({ destination = opts.out_dir, recursive = true })
   else
-    vim.print("TODO: copy static files without plenary")
+    log("TODO: copy static files without plenary")
   end
 end
 
