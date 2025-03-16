@@ -1,6 +1,6 @@
 local M = {}
 
----@class static.Config
+---@class jolt.Config
 M.defaults = {
   out_dir = "build/",
   -- pages_dir = "pages/",

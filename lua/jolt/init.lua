@@ -1,11 +1,11 @@
 local djot = require("djot")
-local config = require("static.config")
+local config = require("jolt.config")
 
 local M = {}
 
 M.setup = config.setup
 
-local log_prefix = "static "
+local log_prefix = "jolt: "
 local headless_log = function(msg)
   vim.print(log_prefix .. msg)
 end
@@ -221,7 +221,7 @@ function M.clean(opts)
   end
 end
 
----@param opts? static.Config
+---@param opts? jolt.Config
 function M.tree_walk(opts)
   opts = config.extend(opts)
 
@@ -439,14 +439,12 @@ function M.build(opts)
       local real_path = vim.fs.joinpath(opts.content_dir, file)
 
       if ext == "dj" then
-        -- build content
         local raw = load_file(real_path)
         local ast = djot.parse(raw, false, function(a)
           log("djot: ", a)
         end)
         pages[path_noext] = ast
       elseif ext == "html" then
-        -- read template
         local templ = load_file(real_path)
         templates[basename] = templ
       else

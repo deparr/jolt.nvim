@@ -1,4 +1,4 @@
-# static.nvim
+# jolt.nvim
 (ab)**using nvim for static site generation**
 
 ## why
@@ -13,7 +13,7 @@
 ## workflow
 run something like:
 ```sh
-nvim --headless "+SomeConfigCommand | StaticBuild"
+nvim --headless "+SomeConfigCommand | JoltBuild"
 ```
 and boom! a static site is now available at `build/`
 
