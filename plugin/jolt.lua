@@ -1,57 +1,82 @@
+if vim.g.loaded_jolt then
+  return
+end
+vim.g.loaded_jolt = true
+
 local jolt = require("jolt")
-local config = require("jolt.config")
+local commands = require("jolt.command")
 
-vim.api.nvim_create_user_command("JoltBuild", function(args)
-  local a = vim.split(args.args, "%s+")
-  if a[1] == "static" then
-    jolt.copy_static()
+vim.api.nvim_create_user_command("Jolt", function(args)
+  local main = args.fargs[1]
+  local sub = args.fargs[2]
+
+  -- todo clean this up
+  local cmd
+  if not main or main == "build" then
+    cmd = jolt.build
+  elseif main == "watch" then
+    cmd = jolt.watch
+  elseif main == "serve" then
+    cmd = jolt.serve
+  elseif main == "clean" then
+    cmd = jolt.clean
   else
-    jolt.build()
-  end
-end, { bar = true, nargs = "*" })
-
--- todo put this into the 'server'
-vim.api.nvim_create_user_command("JoltWatch", function(args)
-  if vim.g.jolt_watching then
-    jolt.log("already watching!")
+    jolt.log(("invalid command '%s'"):format(main))
     return
   end
-  vim.g.jolt_watching = true
-  if config.options == nil then
-    config.setup()
+
+  if sub then
+    if sub == "start" then
+      cmd = function()
+        jolt.start(main)
+      end
+    elseif sub == "stop" then
+      cmd = function()
+        jolt.stop(main)
+      end
+    else
+      if main == "build" then
+        jolt.log("build sub commands are unimplemented", vim.log.levels.ERROR)
+        return
+        -- cmd = function()
+        --   jolt.build(sub)
+        -- end
+      else
+        jolt.log(
+          ("invalid subcommand '%s' for command '%s'"):format(sub, main),
+          vim.log.levels.ERROR
+        )
+        return
+      end
+    end
   end
 
-  local opts = config.extend()
-  -- register autocmds ??
-  -- do initial build
-  -- start server
-  -- need a way to cancel
+  if jolt.headless then
+    cmd()
+    vim.cmd.quit()
+  else
+    vim.schedule(cmd)
+  end
+end, {
+  desc = "Manage jolt.nvim",
+  force = false,
+  nargs = "*",
+  bar = true,
+  complete = function(lead, cmdline, _)
+    local args = vim.split(cmdline, " +", { trimempty = true })
+    local n = #args
 
-  local augroup = vim.api.nvim_create_augroup("JoltWatchGroup", {})
-  -- todo a little jank
-  vim.api.nvim_create_user_command("JoltWatchStop", function(args)
-    vim.api.nvim_del_augroup_by_id(augroup)
-    vim.g.jolt_watching = false
-    vim.api.nvim_del_user_command("JoltWatchStop")
-    -- send kill message
-  end, {})
+    local new_arg = lead ~= ""
+    if n == 1 or n == 2 and new_arg then
+      return vim
+        .iter(commands.main)
+        :filter(function(v)
+          return vim.startswith(v, lead)
+        end)
+        :totable()
+    end
 
-  local cwd = vim.fn.getcwd()
-  local watch_dirs = {
-    vim.fs.joinpath(cwd, opts.pages_dir, "*.dj"),
-    vim.fs.joinpath(cwd, opts.template_dir, "*.html"),
-    vim.fs.joinpath(cwd, opts.static_dir, "*"),
-  }
-  vim.api.nvim_create_autocmd({ "BufWritePost" }, {
-    pattern = watch_dirs,
-    callback = function(event)
-      -- this should send a message to the 'server'
-      -- should be relatively short
-      jolt.log(event.file .. " changed!")
-    end,
-    group = augroup,
-    desc = "JoltWatchBufWritePost",
-  })
-
-  jolt.watch()
-end, {})
+    local main = args[2]
+    return (n < 3 or (new_arg and n == 3)) and commands[main](lead) or {}
+  end,
+})

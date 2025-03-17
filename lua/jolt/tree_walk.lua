@@ -1,0 +1,147 @@
+-- function M.copy_static(opts)
+--   if not opts then
+--     opts = config.extend()
+--   end
+--
+--   if pcall(require, "plenary.path") then
+--     local Path = require("plenary.path")
+--     Path:new(opts.static_dir):copy({ destination = opts.out_dir, recursive = true })
+--   else
+--     log("TODO: copy static files without plenary")
+--   end
+-- end
+--
+----@param opts? jolt.Config
+-- function M.tree_walk(opts)
+--   opts = config.extend(opts)
+--
+--   if vim.fn.isdirectory(opts.out_dir) == 1 then
+--     if #vim.fn.glob(vim.fs.joinpath(opts.out_dir, "/*"), true, true) > 0 then
+--       -- todo not actually removing files so no disk thrashing
+--       -- M.clean()
+--     end
+--   else
+--     vim.fn.mkdir(opts.out_dir, "p")
+--   end
+--
+--   local templates = {}
+--   for f, t in vim.fs.dir(opts.template_dir) do
+--     if t == "file" and f:match("%.html$") then
+--       templates.base = load_file(vim.fs.joinpath(opts.template_dir, f))
+--     end
+--   end
+--
+--   ---@type table<string>
+--   local queue = {}
+--   for _, v in ipairs(opts.root_pages) do
+--     table.insert(queue, v)
+--   end
+--   local visited = { ["/"] = true }
+--   local code_styles = {}
+--
+--   while #queue > 0 do
+--     local url_path = table.remove(queue, #queue)
+--
+--     local raw_content = load_file(vim.fs.joinpath(opts.pages_dir, url_path .. ".dj"))
+--
+--     local document = djot.parse(raw_content, false, function(a)
+--       log("djot: ", a)
+--     end)
+--
+--     local metadata = {}
+--     local filters = {
+--       {
+--         link = function(element)
+--           local is_internal = element.destination and element.destination:match("^([#/])")
+--           if is_internal then
+--             if
+--               #element.destination > 1
+--               and element.destination:sub(#element.destination, #element.destination) == "/"
+--             then
+--               element.destination = element.destination:sub(1, #element.destination - 1)
+--             end
+--
+--             if is_internal == "/" and visited[element.destination] ~= true then
+--               visited[element.destination] = true
+--               table.insert(queue, element.destination)
+--             end
+--           elseif element.destination then
+--             if element.destination:match("^(https?):") then
+--               element.attr = element.attr or djot.ast.new_attributes()
+--               element.attr.target = "_blank"
+--             end
+--           end
+--         end,
+--         code_block = function(element)
+--           element.tag = "raw_block"
+--           element.format = "html"
+--           local code, styles = highlight_code(vim.trim(element.text), element.lang)
+--           element.text = code
+--           for _, s in ipairs(styles) do
+--             if not vim.tbl_contains(code_styles, s) then
+--               table.insert(code_styles, s)
+--             end
+--           end
+--         end,
+--         raw_block = function(element)
+--           if element.format == "meta" then
+--             for line in element.text:gmatch("[^\n]+") do
+--               local key, value = line:match("(%w+) *= *(.+)$")
+--               metadata[key] = value
+--             end
+--           end
+--         end,
+--         section = function(element)
+--           element.attr.id = element.attr.id:lower()
+--           -- todo header anchoring?
+--         end,
+--         image = function(element)
+--           -- todo I want to wrap images in figures
+--           -- element.tag = "raw_block"
+--           -- element.format = "html"
+--           -- local dest = element.destination
+--           -- local alt = element.children[1].text
+--           -- element.children = nil
+--           -- element.text = ('<figure><img src="%s" alt="%s"></img></figure>'):format(dest, alt)
+--         end,
+--       },
+--     }
+--
+--     djot.filter.apply_filter(document, filters)
+--
+--     if vim.api.nvim_buf_is_valid(htmlbufnr) then
+--       vim.api.nvim_buf_delete(htmlbufnr, { force = true })
+--     end
+--     if vim.api.nvim_win_is_valid(htmlwinnr) then
+--       vim.api.nvim_win_close(htmlwinnr, true)
+--     end
+--
+--     metadata.title = metadata.title or opts.default_title
+--     metadata.description = metadata.description or metadata.title
+--
+--     local rendered = djot.render_html(document)
+--     rendered = templates.base:gsub(opts.template_main_slot, rendered)
+--     rendered = rendered:gsub("::([%w_]+)::", metadata)
+--
+--     local out_dir = vim.fs.joinpath(opts.out_dir, url_path)
+--     local out_path
+--     if vim.fs.dirname(url_path) ~= "/" or not vim.tbl_contains(opts.root_pages, url_path) then
+--       vim.fn.mkdir(out_dir, "p")
+--       out_path = vim.fs.joinpath(out_dir, "index.html")
+--     else
+--       out_path = out_dir .. ".html"
+--     end
+--
+--     write_file(out_path, rendered)
+--   end
+--
+--   if #code_styles > 0 then
+--     local hl_groups = vim.iter(code_styles):map(class_name_to_hl_name):totable()
+--     local hl_styles = generate_code_styles(opts, hl_groups)
+--     write_file(vim.fs.joinpath(opts.out_dir, "highlight.css"), hl_styles)
+--   end
+--
+--   M.copy_static(opts)
+--
+--   vim.notify("built:\n" .. vim.inspect(vim.tbl_keys(visited)))
+-- end

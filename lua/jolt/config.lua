@@ -1,5 +1,7 @@
 local M = {}
 
+M.headless = #vim.api.nvim_list_uis() == 0
+
 ---@class jolt.Config
 M.defaults = {
   out_dir = "build/",
@@ -9,13 +11,12 @@ M.defaults = {
   content_dir = "content/",
   depth = 10,
   template_main_slot = "::slot::",
-  default_title = "Test-Site",
+  default_title = vim.fn.fnamemodify(vim.fn.getcwd(), ":t"),
   default_template = "base",
-  templates = {},
-  root_pages = {
-    "/index",
-    "/404",
-  },
+  -- root_pages = {
+  --   "/index",
+  --   "/404",
+  -- },
   ---@type { light: string?, dark: string?, restore: string? } | fun(s: string): table
   code_style = {
     light = "default",
