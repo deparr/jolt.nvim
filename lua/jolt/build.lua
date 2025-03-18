@@ -291,7 +291,9 @@ function M.build_all(opts)
         local templ = load_file(real_path)
         templates[basename] = templ
       else
-        static[file] = true
+        -- todo maybe some sort of user is_static filter
+        local copy_file = file:match("^.+%.dj%.draft$") == nil
+        static[file] = copy_file
       end
     end
   end
