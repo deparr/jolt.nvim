@@ -260,8 +260,8 @@ function M.build_all(opts)
 
   if vim.fn.isdirectory(opts.out_dir) == 1 then
     if #vim.fn.glob(vim.fs.joinpath(opts.out_dir, "/*"), true, true) > 0 then
-      -- todo not actually removing files so no disk thrashing
-      -- M.clean()
+      -- todo maybe clean should happen before writes, can skip equal content
+      M.clean()
     end
   else
     vim.fn.mkdir(opts.out_dir, "p")
