@@ -2,8 +2,8 @@ local M = {}
 
 M.subcommands = {
   build = { "pages", "static" },
-  watch = { "start", "stop", },
-  serve = { "start", "stop", },
+  watch = { "start", "stop" },
+  serve = { "start", "stop" },
   clean = {},
 }
 M.main = { "build", "clean", "serve", "watch" }

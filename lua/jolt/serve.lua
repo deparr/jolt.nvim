@@ -16,7 +16,7 @@ function M.start(opts)
   opts = config.extend(opts)
   local serve_cmd = { "python3", "-m", "http.server", "-d", "build/" }
   buf = vim.api.nvim_create_buf(false, false)
-  M.chan = vim.api.nvim_open_term(buf, { })
+  M.chan = vim.api.nvim_open_term(buf, {})
   win = vim.api.nvim_open_win(buf, false, { split = "right", width = 60 })
   M.proc = vim.system(serve_cmd, {
     -- stdout = function(err, data)
@@ -28,7 +28,9 @@ function M.start(opts)
     -- end,
     stderr = function(err, data)
       if not err or not M.proc:is_closing() then
-        vim.schedule(function() vim.api.nvim_chan_send(M.chan, data) end)
+        vim.schedule(function()
+          vim.api.nvim_chan_send(M.chan, data)
+        end)
       else
         log(err)
       end

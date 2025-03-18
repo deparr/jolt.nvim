@@ -40,7 +40,7 @@ setmetatable(M, {
     if k == "options" then
       return M.defaults
     end
-  end
+  end,
 })
 
 return M
