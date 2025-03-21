@@ -4,11 +4,11 @@ M.headless = #vim.api.nvim_list_uis() == 0
 
 ---@class jolt.Config
 M.defaults = {
-  out_dir = "build/",
+  out_dir = vim.fs.joinpath(vim.fn.getcwd(), "build/"),
   -- pages_dir = "pages/",
   -- template_dir = "templates/",
   -- static_dir = "static/",
-  content_dir = "content/",
+  content_dir = vim.fs.joinpath(vim.fn.getcwd(), "content/"),
   depth = 10,
   template_main_slot = "::slot::",
   default_title = vim.fn.fnamemodify(vim.fn.getcwd(), ":t"),
