@@ -2,7 +2,7 @@ local build = require("jolt.build")
 local config = require("jolt.config")
 local serve = require("jolt.serve")
 local watch = require("jolt.watch")
-local log = require("jolt.log")
+local log = require("jolt.log").default
 
 local M = {}
 

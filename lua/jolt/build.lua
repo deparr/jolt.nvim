@@ -1,6 +1,6 @@
 local djot = require("djot")
 local config = require("jolt.config")
-local log = require("jolt.log")
+local log = require("jolt.log").scoped("build")
 
 local M = {}
 
@@ -267,7 +267,7 @@ function M.build_all(opts)
     vim.fn.mkdir(opts.out_dir, "p")
   end
 
-  log("build: start")
+  log("start")
 
   local pages = {}
   local templates = {}
@@ -323,7 +323,7 @@ function M.build_all(opts)
     end
 
     if rendered_pages[out_path] ~= nil then
-      log(("build: muilple in-files mapped to same out file '%s'"):format(out_path), vim.log.levels.WARN)
+      log(("muilple in-files mapped to same the out-file '%s'"):format(out_path), vim.log.levels.WARN)
     end
     rendered_pages[out_path] = rendered
   end
@@ -362,7 +362,7 @@ function M.build_all(opts)
   end
 
   -- log(("build: %s"):format(vim.inspect(vim.tbl_keys(rendered_pages))))
-  log(("build: complete, rendered %d pages"):format(#vim.tbl_keys(rendered_pages)))
+  log(("complete, rendered %d pages"):format(#vim.tbl_keys(rendered_pages)))
 end
 
 return M

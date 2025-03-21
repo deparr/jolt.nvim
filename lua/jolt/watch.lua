@@ -1,6 +1,6 @@
 local build = require("jolt.build")
 local config = require("jolt.config")
-local log = require("jolt.log")
+local log = require("jolt.log").scoped("watch")
 
 local M = {}
 
@@ -14,14 +14,14 @@ function M.start(opts)
   build.build_all(opts)
 
   if M.headless then
-    log("watch: watch currently unsupported in headless mode")
-    log("watch: exiting")
+    log("watch currently unsupported in headless mode")
+    log("exiting")
     return
   end
 
   handle = vim.uv.new_fs_event()
   if not handle then
-    log("watch: unable to create uv event handle")
+    log("unable to create uv event handle", vim.log.levels.ERROR)
     return
   end
 
@@ -36,18 +36,18 @@ function M.start(opts)
 
     if err then
       vim.schedule(function()
-        log("watch: " .. err)
+        log(err)
       end)
       return
     end
 
     vim.schedule(function()
-      log("watch: " .. f .. " changed!")
+      log(f .. " changed!")
     end)
   end)
 
   vim.g.jolt_watching = true
-  log("watch: started!")
+  log("started!")
 end
 
 function M.stop()

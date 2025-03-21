@@ -1,5 +1,5 @@
 local config = require("jolt.config")
-local log = require("jolt.log")
+local log = require("jolt.log").scoped("serve")
 
 local M = {}
 
@@ -38,7 +38,7 @@ function M.start(opts)
     text = true,
   })
 
-  vim.notify("serve: start: pid " .. M.proc.pid)
+  log("start: pid " .. M.proc.pid)
 end
 
 function M.stop()
@@ -54,7 +54,7 @@ function M.stop()
     end
 
     M.proc = nil
-    log("serve: stopping")
+    log("stopping")
   end
 end
 
