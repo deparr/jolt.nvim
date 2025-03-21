@@ -315,12 +315,16 @@ function M.build_all(opts)
     -- speical cases
     -- index -> index.html
     -- 404 -> 404.html
-    if url == "404" or url == "index" then
+    local tail = vim.fs.basename(url)
+    if tail == "404" or tail == "index" then
       out_path = vim.fs.joinpath(opts.out_dir, url .. ".html")
     else
       out_path = vim.fs.joinpath(opts.out_dir, url, "index.html")
     end
 
+    if rendered_pages[out_path] ~= nil then
+      log(("build: muilple in-files mapped to same out file '%s'"):format(out_path), vim.log.levels.WARN)
+    end
     rendered_pages[out_path] = rendered
   end
 
