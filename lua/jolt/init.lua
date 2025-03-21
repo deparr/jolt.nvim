@@ -6,9 +6,12 @@ local log = require("jolt.log").default
 
 local M = {}
 
+--- The default, top-level logger
 M.log = log
+--- true if neovim was started in headless mode
 M.headless = config.headless
 M.setup = config.setup
+---@param what? string type of content to build, pass `nil` to build all
 M.build = function(what)
   if not what then
     build.build_all()
@@ -20,6 +23,7 @@ M.clean = build.clean
 M.serve = serve.start
 M.watch = watch.start
 
+---@param what? string which long-running service to start
 function M.start(what)
   if what == "watch" then
     watch.start()
@@ -30,6 +34,7 @@ function M.start(what)
   end
 end
 
+---@param what? string which long-running service to stop
 function M.stop(what)
   if what == "watch" then
     watch.stop()

@@ -1,11 +1,13 @@
 local M = {}
 
+--- jolt subcommands 
 M.subcommands = {
   build = { "pages", "static" },
   watch = { "start", "stop" },
   serve = { "start", "stop" },
   clean = {},
 }
+--- jolt commands
 M.main = { "build", "clean", "serve", "watch" }
 
 --- Which commands should quit after running in

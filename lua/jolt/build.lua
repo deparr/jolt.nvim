@@ -5,6 +5,8 @@ local fs = vim.fs
 
 local M = {}
 
+---@param opts? jolt.Config
+--- cleans `opts.out_dir`, if it exists
 function M.clean(opts)
   opts = opts or config.extend()
   if opts.out_dir ~= "~" or opts.out_dir ~= "/" then
@@ -35,7 +37,7 @@ local function write_file(path, content)
   f:close()
 end
 
--- todo this is not robust
+--- todo this is not robust
 local function ensure_dir_exists(path)
   local parent = vim.fn.fnamemodify(path, ":e") == "" and path or fs.dirname(path)
   vim.fn.mkdir(parent, "p")
@@ -48,6 +50,9 @@ local function write_all(paths)
   end
 end
 
+---@param list table<any>
+---@param new table<any>
+--- appends values from `new` that aren't already in `list` to `list`
 local function add_if_not_present(list, new)
   for _, v in ipairs(new) do
     if not vim.list_contains(list, v) then
@@ -68,6 +73,9 @@ local function close_html_buf_win()
   end
 end
 
+---@param code string|string[] code block content
+---@param lang string language to highlight as
+---@return string rendered, table<string> styles
 local function highlight_code(code, lang)
   local tohtml = require("tohtml").tohtml
   htmlbufnr = vim.api.nvim_buf_is_valid(htmlbufnr) and htmlbufnr
@@ -80,6 +88,7 @@ local function highlight_code(code, lang)
     0,
     -1,
     false,
+    ---@diagnostic disable-next-line param-type-mismatch
     type(code) == "string" and vim.split(code, "\n") or code
   )
   vim.bo[htmlbufnr].filetype = lang
@@ -140,10 +149,14 @@ local function highlight_code(code, lang)
   return rendered, styles
 end
 
+---@param name string css class name to convert
+---@return string vim_hl_name
 local function class_name_to_hl_name(name)
   return (name:sub(2):gsub("^%-", "@"):gsub("%-", "."):match("^(%S+) .*$"))
 end
 
+---@param name string vim hl_group to convert
+---@return string css_class_name
 local function hl_name_to_class_name(name)
   return (name:gsub("%.", "-"):gsub("@", "-"))
 end
@@ -163,7 +176,8 @@ local function get_hl_defs(hl_groups)
   return used_hls
 end
 
---- generates a style file for the current colorscheme
+---@param hl_groups table<string, vim.api.keyset.highlight>
+--- generates css classes for the given highlight groups
 local function generate_styles_for_colorscheme(hl_groups)
   local out = {}
   for name, hl in pairs(hl_groups) do
@@ -190,6 +204,9 @@ local function generate_styles_for_colorscheme(hl_groups)
   return out
 end
 
+---@param opts jolt.Config
+---@param hl_groups table<string> hl groups to generate styles for
+---@return string css_stylesheet
 local function generate_code_styles(opts, hl_groups)
   local light, dark
   if type(opts.code_style) == "function" then
@@ -222,6 +239,10 @@ local function generate_code_styles(opts, hl_groups)
 }]]):format(table.concat(dark, "\n"), table.concat(light, "\n\t"))
 end
 
+---@param document AST djot ast
+---@param code_styles table<string> list of highlight groups used by code blocks
+---@return table<string, string|number> metadata
+--- Filters a page. Highlighting code blocks, anchoring headers, and setting metadata
 function M.filter(document, code_styles)
   local metadata = {}
   local filters = {
@@ -282,6 +303,7 @@ local templates = {}
 local code_styles = {}
 local rendered_pages = {}
 
+---@param opts? jolt.Config
 function M.build_all(opts)
   opts = opts or config.extend(opts)
 
@@ -331,7 +353,7 @@ function M.build_all(opts)
     metadata.template = metadata.template or opts.default_template
     metadata.description = metadata.description or metadata.title
     if metadata.slot then
-      log(url .." has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
+      log(url .. " has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
       metadata.slot = nil
     end
 
@@ -373,13 +395,14 @@ function M.build_all(opts)
 
   close_html_buf_win()
 
-
   M.write_static(static, opts)
 
   -- log(("build: %s"):format(vim.inspect(vim.tbl_keys(rendered_pages))))
   log(("complete, rendered %d pages"):format(#vim.tbl_keys(out_paths)))
 end
 
+---@param files table<string> the changeset, file paths relative to `opts.content_dir`
+---@param opts? jolt.Config
 function M.build_changeset(files, opts)
   opts = opts or config.extend()
   local pages = {}
@@ -417,7 +440,7 @@ function M.build_changeset(files, opts)
     metadata.template = metadata.template or opts.default_template
     metadata.description = metadata.description or metadata.title
     if metadata.slot then
-      log(url .." has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
+      log(url .. " has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
       metadata.slot = nil
     end
     page_metadata[url] = metadata
@@ -446,7 +469,6 @@ function M.build_changeset(files, opts)
     out_paths[out_path] = rendered
   end
 
-
   write_all(out_paths)
 
   if #new_code_styles > 0 then
@@ -470,6 +492,8 @@ function M.build_changeset(files, opts)
   log("complete")
 end
 
+---@param static table<string, string|boolean> files to copy
+---@param opts? jolt.Config
 function M.write_static(static, opts)
   opts = opts or config.extend()
   for file, content in pairs(static) do

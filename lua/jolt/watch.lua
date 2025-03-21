@@ -5,12 +5,17 @@ local uv = vim.uv
 
 local M = {}
 
+-- watch state
 local handle = nil
 local debounce = nil
 local debounce_time = 750
 local changed_files = {}
 local mtimes = {}
 local err
+
+---@param opts? jolt.Config
+--- Starts watching `opts.content_dir` for changes
+--- Sets `vim.g.jolt_watching` to `true`
 function M.start(opts)
   if vim.g.jolt_watching then
     log("already watching")
@@ -76,6 +81,7 @@ function M.start(opts)
   log(("watching '%s' for changes..."):format(opts.content_dir))
 end
 
+--- stops watching `opts.content_dir`
 function M.stop()
   if handle then
     vim.uv.fs_event_stop(handle)
