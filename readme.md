@@ -31,14 +31,15 @@ and boom! a static site is now available at `build/`
         - this would also make the html a little cleaner
 - [x] feature-full user commands
     - [ ] command line parsing is a little jank, should revisit
-- [ ] templates: current templates are hardcoded
-    - should be able to nest templates
-    - templates should be able to be scanned in any order
-        - components
-- [ ] watch mode
-    - use libuv to watch the uses content dir for changes
-    - should be granular if possible, only rebuild what changed
-    - should be able to serve at the same time
+- [x] templates: current templates are hardcoded
+    - [ ] should be able to nest templates
+    - [x] templates should be able to be scanned in any order
+        - [ ] components ???
+- [x] watch mode
+    - [x] use libuv to watch the uses content dir for changes
+    - [x] should be granular if possible, only rebuild what changed
+        - [ ] support live template changes
+    - [ ] should be able to serve at the same time
 - [ ] serve mode
     - run a user supplied system command to serve the build directory
       locally
