@@ -1,39 +1,38 @@
 local build = require("jolt.build")
 local config = require("jolt.config")
 local log = require("jolt.log").scoped("watch")
+local uv = vim.uv
 
 local M = {}
 
 local handle = nil
+local debounce = nil
+local debounce_time = 750
+local changed_files = {}
+local mtimes = {}
+local err
 function M.start(opts)
-  if handle then
+  if vim.g.jolt_watching then
+    log("already watching")
     return
   end
   opts = config.extend(opts)
 
   build.build_all(opts)
 
-  if M.headless then
-    log("watch currently unsupported in headless mode")
-    log("exiting")
-    return
-  end
-
-  handle = vim.uv.new_fs_event()
+  handle, err = uv.new_fs_event()
   if not handle then
-    log("unable to create uv event handle", vim.log.levels.ERROR)
+    log("unable to create uv event handle: " .. err, vim.log.levels.ERROR)
     return
   end
 
-  vim.uv.fs_event_start(handle, opts.content_dir, { recursive = true }, function(err, f, e)
-    if not f or f == "" or f:match("%~$") or f:match("^%d+$") then
-      return
-    end
+  debounce, err = uv.new_timer()
+  if not debounce then
+    log("unable to create uv timer: " .. err, vim.log.levels.ERROR)
+    return
+  end
 
-    if e.rename then
-      return
-    end
-
+  uv.fs_event_start(handle, opts.content_dir, { recursive = true }, function(err, f, e)
     if err then
       vim.schedule(function()
         log(err)
@@ -41,13 +40,40 @@ function M.start(opts)
       return
     end
 
-    vim.schedule(function()
-      log(f .. " changed!")
+    if e.rename then
+      return
+    end
+
+    if not f or f == "" or f:match("%~$") or f:match("^%d+$") then
+      return
+    end
+
+    local stat = uv.fs_stat(opts.content_dir .. f)
+    if not stat or stat.type == "directory" or mtimes[f] == stat.mtime.sec then
+      return
+    else
+      mtimes[f] = stat.mtime.sec
+    end
+
+    changed_files[vim.fs.normalize(f)] = true
+
+    if debounce:get_due_in() > 0 then
+      debounce:again()
+      return
+    end
+
+    debounce:start(debounce_time, debounce_time, function()
+      vim.schedule(function()
+        log("got changes, rebuilding...")
+        build.build_changeset(changed_files)
+        changed_files = {}
+      end)
+      debounce:stop()
     end)
   end)
 
   vim.g.jolt_watching = true
-  log("started!")
+  log(("watching '%s' for changes..."):format(opts.content_dir))
 end
 
 function M.stop()
@@ -57,6 +83,14 @@ function M.stop()
     handle = nil
   end
 
+  if debounce then
+    debounce:stop()
+    debounce = nil
+  end
+
+  changed_files = {}
+
+  log("stop")
   vim.g.jolt_watching = false
 end
 

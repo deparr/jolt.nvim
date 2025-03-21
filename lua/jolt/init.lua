@@ -22,7 +22,7 @@ M.watch = watch.start
 
 function M.start(what)
   if what == "watch" then
-    -- watch.start()
+    watch.start()
   elseif what == "serve" then
     serve.start()
   else
@@ -32,7 +32,7 @@ end
 
 function M.stop(what)
   if what == "watch" then
-    -- watch.stop()
+    watch.stop()
   elseif what == "serve" then
     serve.stop()
   else

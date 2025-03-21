@@ -51,7 +51,7 @@ vim.api.nvim_create_user_command("Jolt", function(args)
     end
   end
 
-  if jolt.headless then
+  if jolt.headless and commands.should_quit[main] then
     cmd()
     vim.cmd.quit()
   else

@@ -1,13 +1,14 @@
 local djot = require("djot")
 local config = require("jolt.config")
 local log = require("jolt.log").scoped("build")
+local fs = vim.fs
 
 local M = {}
 
 function M.clean(opts)
   opts = opts or config.extend()
   if opts.out_dir ~= "~" or opts.out_dir ~= "/" then
-    vim.fs.rm(opts.out_dir, { recursive = true, force = true })
+    fs.rm(opts.out_dir, { recursive = true, force = true })
   else
     log(("wont remove out dir '%s'"):format(opts.out_dir), vim.log.levels.ERROR)
   end
@@ -36,12 +37,36 @@ end
 
 -- todo this is not robust
 local function ensure_dir_exists(path)
-  local parent = vim.fn.fnamemodify(path, ":e") == "" and path or vim.fs.dirname(path)
+  local parent = vim.fn.fnamemodify(path, ":e") == "" and path or fs.dirname(path)
   vim.fn.mkdir(parent, "p")
+end
+
+local function write_all(paths)
+  for file, content in pairs(paths) do
+    ensure_dir_exists(file)
+    write_file(file, content)
+  end
+end
+
+local function add_if_not_present(list, new)
+  for _, v in ipairs(new) do
+    if not vim.list_contains(list, v) then
+      table.insert(list, v)
+    end
+  end
 end
 
 local htmlbufnr = -1
 local htmlwinnr = -1
+
+local function close_html_buf_win()
+  if vim.api.nvim_buf_is_valid(htmlbufnr) then
+    vim.api.nvim_buf_delete(htmlbufnr, { force = true })
+  end
+  if vim.api.nvim_win_is_valid(htmlwinnr) then
+    vim.api.nvim_win_close(htmlwinnr, true)
+  end
+end
 
 local function highlight_code(code, lang)
   local tohtml = require("tohtml").tohtml
@@ -222,11 +247,7 @@ function M.filter(document, code_styles)
         element.format = "html"
         local code, styles = highlight_code(vim.trim(element.text), element.lang)
         element.text = code
-        for _, s in ipairs(styles) do
-          if not vim.tbl_contains(code_styles, s) then
-            table.insert(code_styles, s)
-          end
-        end
+        add_if_not_present(code_styles, styles)
       end,
       raw_block = function(element)
         if element.format == "meta" then
@@ -255,11 +276,17 @@ function M.filter(document, code_styles)
   return metadata
 end
 
+-- Build State
+local page_metadata = {}
+local templates = {}
+local code_styles = {}
+local rendered_pages = {}
+
 function M.build_all(opts)
-  opts = config.extend(opts)
+  opts = opts or config.extend(opts)
 
   if vim.fn.isdirectory(opts.out_dir) == 1 then
-    if #vim.fn.glob(vim.fs.joinpath(opts.out_dir, "/*"), true, true) > 0 then
+    if #vim.fn.glob(fs.joinpath(opts.out_dir, "/*"), true, true) > 0 then
       -- todo maybe clean should happen before writes, can skip equal content
       M.clean()
     end
@@ -270,16 +297,15 @@ function M.build_all(opts)
   log("start")
 
   local pages = {}
-  local templates = {}
   local static = {}
 
-  for file, type in vim.fs.dir(opts.content_dir, { depth = opts.depth }) do
+  for file, type in fs.dir(opts.content_dir, { depth = opts.depth }) do
     if type == "directory" then
     elseif type == "file" then
       local ext = vim.fn.fnamemodify(file, ":e")
       local basename = vim.fn.fnamemodify(file, ":t:r")
       local path_noext = vim.fn.fnamemodify(file, ":r")
-      local real_path = vim.fs.joinpath(opts.content_dir, file)
+      local real_path = fs.joinpath(opts.content_dir, file)
 
       if ext == "dj" then
         local raw = load_file(real_path)
@@ -292,41 +318,52 @@ function M.build_all(opts)
         templates[basename] = templ
       else
         -- todo maybe some sort of user is_static filter
-        local copy_file = file:match("^.+%.dj%.draft$") == nil
-        static[file] = copy_file
+        local should_copy = file:match("^.+%.dj%.draft$") == nil
+        static[file] = should_copy
       end
     end
   end
 
-  local code_styles = {}
-  local rendered_pages = {}
+  local out_paths = {}
   for url, document in pairs(pages) do
     local metadata = M.filter(document, code_styles)
     metadata.title = metadata.title or opts.default_title
     metadata.template = metadata.template or opts.default_template
     metadata.description = metadata.description or metadata.title
+    if metadata.slot then
+      log(url .." has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
+      metadata.slot = nil
+    end
+
+    page_metadata[url] = metadata
 
     -- todo nested templates
     local rendered = djot.render_html(document)
-    rendered = templates[metadata.template]:gsub(opts.template_main_slot, rendered)
     rendered = rendered:gsub("::([%w_]+)::", metadata)
+    rendered_pages[url] = rendered
+    rendered = templates[metadata.template]:gsub(opts.template_main_slot, rendered)
 
     local out_path
     -- speical cases
     -- index -> index.html
     -- 404 -> 404.html
-    local tail = vim.fs.basename(url)
+    local tail = fs.basename(url)
     if tail == "404" or tail == "index" then
-      out_path = vim.fs.joinpath(opts.out_dir, url .. ".html")
+      out_path = fs.joinpath(opts.out_dir, url .. ".html")
     else
-      out_path = vim.fs.joinpath(opts.out_dir, url, "index.html")
+      out_path = fs.joinpath(opts.out_dir, url, "index.html")
     end
 
-    if rendered_pages[out_path] ~= nil then
-      log(("muilple in-files mapped to same the out-file '%s'"):format(out_path), vim.log.levels.WARN)
+    if out_paths[out_path] ~= nil then
+      log(
+        ("muilple in-files mapped to same the out-file '%s'"):format(out_path),
+        vim.log.levels.WARN
+      )
     end
-    rendered_pages[out_path] = rendered
+    out_paths[out_path] = rendered
   end
+
+  write_all(out_paths)
 
   if #code_styles > 0 then
     local hl_groups = vim.iter(code_styles):map(class_name_to_hl_name):totable()
@@ -334,22 +371,111 @@ function M.build_all(opts)
     static["css/highlight.css"] = hl_styles
   end
 
-  if vim.api.nvim_buf_is_valid(htmlbufnr) then
-    vim.api.nvim_buf_delete(htmlbufnr, { force = true })
-  end
-  if vim.api.nvim_win_is_valid(htmlwinnr) then
-    vim.api.nvim_win_close(htmlwinnr, true)
+  close_html_buf_win()
+
+
+  M.write_static(static, opts)
+
+  -- log(("build: %s"):format(vim.inspect(vim.tbl_keys(rendered_pages))))
+  log(("complete, rendered %d pages"):format(#vim.tbl_keys(out_paths)))
+end
+
+function M.build_changeset(files, opts)
+  opts = opts or config.extend()
+  local pages = {}
+  local updated_templates = {}
+  local static = {}
+
+  -- todo dedup this
+  for file, _ in pairs(files) do
+    local ext = vim.fn.fnamemodify(file, ":e")
+    local basename = vim.fn.fnamemodify(file, ":t:r")
+    local path_noext = vim.fn.fnamemodify(file, ":r")
+    local real_path = fs.joinpath(opts.content_dir, file)
+
+    if ext == "dj" then
+      local raw = load_file(real_path)
+      local ast = djot.parse(raw, false, function(a)
+        log("djot: ", vim.inspect(a))
+      end)
+      pages[path_noext] = ast
+    elseif ext == "html" then
+      local templ = load_file(real_path)
+      updated_templates[basename] = templ
+    else
+      local should_copy = file:match("^.+%.dj%.draft$") == nil
+      static[file] = should_copy
+    end
   end
 
-  for file, content in pairs(rendered_pages) do
-    ensure_dir_exists(file)
-    write_file(file, content)
+  local new_code_styles = {}
+  local out_paths = {}
+  -- todo dedup this
+  for url, document in pairs(pages) do
+    local metadata = M.filter(document, new_code_styles)
+    metadata.title = metadata.title or opts.default_title
+    metadata.template = metadata.template or opts.default_template
+    metadata.description = metadata.description or metadata.title
+    if metadata.slot then
+      log(url .." has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
+      metadata.slot = nil
+    end
+    page_metadata[url] = metadata
+    local rendered = djot.render_html(document)
+    rendered = rendered:gsub("::([%w_]+)::", metadata)
+    rendered_pages[url] = rendered
+    rendered = templates[metadata.template]:gsub(opts.template_main_slot, rendered)
+
+    local out_path
+    -- speical cases
+    -- index -> index.html
+    -- 404 -> 404.html
+    local tail = fs.basename(url)
+    if tail == "404" or tail == "index" then
+      out_path = fs.joinpath(opts.out_dir, url .. ".html")
+    else
+      out_path = fs.joinpath(opts.out_dir, url, "index.html")
+    end
+
+    if out_paths[out_path] ~= nil then
+      log(
+        ("muilple in-files mapped to same the out-file '%s'"):format(out_path),
+        vim.log.levels.WARN
+      )
+    end
+    out_paths[out_path] = rendered
   end
 
+
+  write_all(out_paths)
+
+  if #new_code_styles > 0 then
+    local old_style_len = #code_styles
+    add_if_not_present(code_styles, new_code_styles)
+    if old_style_len ~= #code_styles then
+      local hl_groups = vim.iter(code_styles):map(class_name_to_hl_name):totable()
+      local hl_styles = generate_code_styles(opts, hl_groups)
+      static["css/highlight.css"] = hl_styles
+    end
+  end
+
+  close_html_buf_win()
+
+  M.write_static(static, opts)
+
+  if #vim.tbl_keys(updated_templates) > 0 then
+    log("template reloading current unsupported :(")
+  end
+
+  log("complete")
+end
+
+function M.write_static(static, opts)
+  opts = opts or config.extend()
   for file, content in pairs(static) do
-    local out = vim.fs.joinpath(opts.out_dir, file)
+    local out = fs.joinpath(opts.out_dir, file)
     if type(content) == "boolean" and content then
-      local in_ = vim.fs.joinpath(opts.content_dir, file)
+      local in_ = fs.joinpath(opts.content_dir, file)
       ensure_dir_exists(out)
       local suc, err = vim.uv.fs_copyfile(in_, out, nil)
       if not suc then
@@ -360,9 +486,6 @@ function M.build_all(opts)
       write_file(out, content)
     end
   end
-
-  -- log(("build: %s"):format(vim.inspect(vim.tbl_keys(rendered_pages))))
-  log(("complete, rendered %d pages"):format(#vim.tbl_keys(rendered_pages)))
 end
 
 return M

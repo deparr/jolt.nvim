@@ -8,6 +8,15 @@ M.subcommands = {
 }
 M.main = { "build", "clean", "serve", "watch" }
 
+--- Which commands should quit after running in
+--- headless mode
+M.should_quit = {
+  build = true,
+  clean = true,
+  watch = false,
+  serve = false,
+}
+
 setmetatable(M, {
   __index = function(t, k)
     return function(input)
