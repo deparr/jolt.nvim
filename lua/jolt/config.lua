@@ -25,7 +25,16 @@ M.options = nil
 
 ---@param opts? jolt.Config
 function M.setup(opts)
-  M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
+  opts = opts or {}
+  if opts.out_dir then
+    opts.out_dir = vim.fn.isabsolutepath(opts.out_dir) and opts.out_dir
+      or vim.fs.joinpath(vim.fn.getcwd(), opts.out_dir)
+  end
+  if opts.content_dir then
+    opts.content_dir = vim.fn.isabsolutepath(opts.content_dir) and opts.content_dir
+      or vim.fs.joinpath(vim.fn.getcwd(), opts.content_dir)
+  end
+  M.options = vim.tbl_deep_extend("force", M.defaults, opts)
 end
 
 ---@param opts? jolt.Config
