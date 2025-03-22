@@ -361,9 +361,9 @@ function M.build_all(opts)
 
     -- todo nested templates
     local rendered = djot.render_html(document)
-    rendered = rendered:gsub("::([%w_]+)::", metadata)
     rendered_pages[url] = rendered
     rendered = templates[metadata.template]:gsub(opts.template_main_slot, rendered)
+    rendered = rendered:gsub("::([%w_]+)::", metadata)
 
     local out_path
     -- speical cases
@@ -444,10 +444,11 @@ function M.build_changeset(files, opts)
       metadata.slot = nil
     end
     page_metadata[url] = metadata
+
     local rendered = djot.render_html(document)
-    rendered = rendered:gsub("::([%w_]+)::", metadata)
     rendered_pages[url] = rendered
     rendered = templates[metadata.template]:gsub(opts.template_main_slot, rendered)
+    rendered = rendered:gsub("::([%w_]+)::", metadata)
 
     local out_path
     -- speical cases
