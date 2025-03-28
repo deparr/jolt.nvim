@@ -101,7 +101,8 @@ local function highlight_code(code, lang)
     log("TODO build.wrap_and_highlight_code: parse injected languages")
   end
   root = root[1]:root()
-  local queryset = vim.treesitter.query.get(lang, "highlights") or error("todo handle empty queryset")
+  local queryset = vim.treesitter.query.get(lang, "highlights")
+    or error("todo handle empty queryset")
 
   local rendered = {}
   local styles = {}
@@ -109,27 +110,41 @@ local function highlight_code(code, lang)
   local cursor = 0
   local open_line = '<span class="line">'
   local close_line = "</span>"
+  local empty_line = open_line .. close_line
   local line = { open_line }
-  local finish_line = function()
-    linenr = linenr + 1
+  local finish_line = function(diff)
+    linenr = linenr + diff
     table.insert(line, close_line)
     table.insert(rendered, table.concat(line, ""))
+    -- insert empty after finished line, diff is number of lines between
+    -- line being finished and the next non-empty line
+    if diff > 1 then
+      for _ = 1, diff - 1 do
+        table.insert(rendered, empty_line)
+      end
+    end
     line = { open_line }
     cursor = 0
   end
 
+  local function range_equal(a, b)
+    return a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4]
+  end
+  local function range_within(a, b)
+    return a[1] == b[1] and a[2] >= b[2] and a[4] <= b[4]
+  end
+  local prev_range = { -1, -1, -1, -1 }
   for id, node, meta in queryset:iter_captures(root, code) do
     local name = queryset.captures[id]
     local srow, scol, erow, ecol = node:range()
 
-    if name == "spell" or name == "nospell" or name == "none" then
+    if name == "spell" or name == "nospell" or name == "none" or name:sub(1, 1) == "_" then
       goto continue
     end
 
     if #vim.tbl_keys(meta) > 0 then
       meta.name = name
       meta.type = node:type()
-      log(vim.inspect(meta) .. (" at: %s:%d:%d"):format(lang, linenr, scol))
     end
 
     styles["@" .. name] = true
@@ -139,25 +154,46 @@ local function highlight_code(code, lang)
     end
 
     if srow > linenr then
-      finish_line()
-    end
-
-    if scol > cursor then
-      local normal = code_lines[linenr + 1]:sub(cursor + 1, scol)
-      table.insert(line, html_escape(normal))
+      finish_line(srow - linenr)
+      prev_range = { -1, -1, -1, -1 }
     end
 
     local rendered_node = code_lines[linenr + 1]:sub(scol + 1, ecol)
     local class = capture_name_to_class_name(name)
     rendered_node = ('<span class="%s">%s</span>'):format(class, html_escape(rendered_node))
 
-    table.insert(line, rendered_node)
+    local cur_range = { srow, scol, erow, ecol, name = name }
+    if range_equal(cur_range, prev_range) then
+      if line[#line] == open_line then
+        log(lang .. ":" .. linenr .. " replaced a line open tag. this is likely a bug")
+      end
+      line[#line] = rendered_node
+      styles["@" .. prev_range.name] = nil
+    elseif range_within(cur_range, prev_range) then
+      -- do some garbo string manipulation
+      -- find relative offsets and insert a new span into prev line,
+      -- this should not update the prev range, or cursor either?
+      --
+      -- this will be harder than I previously thought
+      -- just remove their hls for now
+      styles["@" .. cur_range.name] = nil
+    else
+      -- regular node
+      if scol > cursor then
+        local normal = code_lines[linenr + 1]:sub(cursor + 1, scol)
+        table.insert(line, html_escape(normal))
+      end
 
-    cursor = ecol
+      table.insert(line, rendered_node)
+
+      prev_range = cur_range
+      cursor = ecol
+    end
+
     ::continue::
   end
 
-  finish_line()
+  finish_line(0)
 
   return rendered, vim.tbl_keys(styles)
 end
@@ -184,14 +220,12 @@ end
 ---@param name string css class name to convert
 ---@return string vim_hl_name
 local function class_name_to_hl_name(name)
-  -- return (name:sub(2):gsub("^%-", "@"):gsub("%-", "."):match("^(%S+) .*$"))
   return (name:gsub("^hl-", "@"):gsub("%-", "."))
 end
 
 ---@param name string vim hl_group to convert
 ---@return string css_class_name
 local function hl_name_to_class_name(name)
-  -- return (name:gsub("%.", "-"):gsub("@", "-"))
   return (name:gsub("^%@", "hl-"):gsub("%.+", "-"))
 end
 
@@ -300,7 +334,6 @@ function M.filter(document, code_styles)
       code_block = function(element)
         element.tag = "raw_block"
         element.format = "html"
-        -- local code, styles = highlight_code(vim.trim(element.text), element.lang)
         local code, styles = wrap_and_highlight_code(vim.trim(element.text), element.lang)
         element.text = code
         add_if_not_present(code_styles, styles)
