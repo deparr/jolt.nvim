@@ -61,18 +61,6 @@ local function add_if_not_present(list, new)
   end
 end
 
-local htmlbufnr = -1
-local htmlwinnr = -1
-
-local function close_html_buf_win()
-  if vim.api.nvim_buf_is_valid(htmlbufnr) then
-    vim.api.nvim_buf_delete(htmlbufnr, { force = true })
-  end
-  if vim.api.nvim_win_is_valid(htmlwinnr) then
-    vim.api.nvim_win_close(htmlwinnr, true)
-  end
-end
-
 local function capture_name_to_class_name(name)
   return "hl-" .. (name:gsub("%.", "-"))
 end
@@ -98,11 +86,20 @@ local function highlight_code(code, lang)
   local parser = vim.treesitter.get_string_parser(code, lang, {})
   local root = parser:parse() or error("todo parse timed out")
   if #root > 1 then
-    log("TODO build.wrap_and_highlight_code: parse injected languages")
+    log("TODO wrap_and_highlight_code: parse injected languages")
   end
   root = root[1]:root()
   local queryset = vim.treesitter.query.get(lang, "highlights")
-    or error("todo handle empty queryset")
+
+  if not queryset then
+    return vim
+      .iter(code_lines)
+      :map(function(v)
+        return ('<span class="line">%s</span>'):format(v)
+      end)
+      :totable(),
+      {}
+  end
 
   local rendered = {}
   local styles = {}
@@ -134,7 +131,7 @@ local function highlight_code(code, lang)
     return a[1] == b[1] and a[2] >= b[2] and a[4] <= b[4]
   end
   local prev_range = { -1, -1, -1, -1 }
-  for id, node, meta in queryset:iter_captures(root, code) do
+  for id, node in queryset:iter_captures(root, code) do
     local name = queryset.captures[id]
     local srow, scol, erow, ecol = node:range()
 
@@ -142,15 +139,15 @@ local function highlight_code(code, lang)
       goto continue
     end
 
-    if #vim.tbl_keys(meta) > 0 then
-      meta.name = name
-      meta.type = node:type()
-    end
-
     styles["@" .. name] = true
 
     if srow ~= erow then
-      log(("TSNode spans lines, in code block %s:%d likely has bad syntax"):format(lang, linenr)) -- todo give this some context
+      log(
+        ("TSNode spans lines at code block %s:%d, output will likely be scuffed"):format(
+          lang,
+          linenr
+        )
+      )
     end
 
     if srow > linenr then
@@ -170,12 +167,8 @@ local function highlight_code(code, lang)
       line[#line] = rendered_node
       styles["@" .. prev_range.name] = nil
     elseif range_within(cur_range, prev_range) then
-      -- do some garbo string manipulation
-      -- find relative offsets and insert a new span into prev line,
-      -- this should not update the prev range, or cursor either?
-      --
-      -- this will be harder than I previously thought
-      -- just remove their hls for now
+      -- todo nested captures will be harder than
+      -- I thought, just remove their hls for now
       styles["@" .. cur_range.name] = nil
     else
       -- regular node
@@ -294,7 +287,7 @@ local function generate_code_styles(opts, hl_groups)
     vim.o.bg = "dark"
     vim.cmd.colorscheme(opts.code_style.dark)
     dark = generate_styles_for_colorscheme(get_hl_defs(hl_groups))
-    if #vim.tbl_keys(vim.api.nvim_list_uis()) > 0 then
+    if not config.headless then
       vim.o.bg = restore_bg
       vim.cmd.colorscheme(restore)
     end
@@ -378,7 +371,7 @@ function M.build_all(opts)
   if vim.fn.isdirectory(opts.out_dir) == 1 then
     if #vim.fn.glob(fs.joinpath(opts.out_dir, "/*"), true, true) > 0 then
       -- todo maybe clean should happen before writes, can skip equal content
-      -- M.clean()
+      M.clean()
     end
   else
     vim.fn.mkdir(opts.out_dir, "p")
@@ -456,12 +449,9 @@ function M.build_all(opts)
   write_all(out_paths)
 
   if #code_styles > 0 then
-    -- local hl_groups = vim.iter(code_styles):map(class_name_to_hl_name):totable()
     local hl_styles = generate_code_styles(opts, code_styles)
     static["css/highlight.css"] = hl_styles
   end
-
-  close_html_buf_win()
 
   M.write_static(static, opts)
 
@@ -550,8 +540,6 @@ function M.build_changeset(files, opts)
     end
   end
 
-  close_html_buf_win()
-
   M.write_static(static, opts)
 
   if #vim.tbl_keys(updated_templates) > 0 then
@@ -570,8 +558,8 @@ function M.write_static(static, opts)
     if type(content) == "boolean" and content then
       local in_ = fs.joinpath(opts.content_dir, file)
       ensure_dir_exists(out)
-      local suc, err = vim.uv.fs_copyfile(in_, out, nil)
-      if not suc then
+      local _, err = vim.uv.fs_copyfile(in_, out, nil)
+      if err then
         log(err)
       end
     elseif type(content) == "string" then
