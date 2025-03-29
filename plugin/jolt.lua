@@ -7,12 +7,12 @@ local jolt = require("jolt")
 local commands = require("jolt.command")
 
 vim.api.nvim_create_user_command("Jolt", function(args)
-  local main = args.fargs[1]
+  local main = args.fargs[1] or "build"
   local sub = args.fargs[2]
 
   -- todo clean this up
   local cmd
-  if not main or main == "build" then
+  if main == "build" then
     cmd = jolt.build
   elseif main == "watch" then
     cmd = jolt.watch
