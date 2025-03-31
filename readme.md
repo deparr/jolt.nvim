@@ -23,12 +23,15 @@ and boom! a static site is now available at `build/`
 > loosely ordered by priority
 - [ ] headless ux should be equivalent to interactive
 - [x] code block highlighting based on neovim colorscheme
-    - [ ] works, but relying on `:TOhtml` is pretty janky (would need to be
+    - [x] works, but relying on `:TOhtml` is pretty janky (would need to be
       properly parsed). look into
       generating the html myself with treesitter.
-        - can you just throw a []u8 at treesitter and get a parse tree
+        - [x] can you just throw a []u8 at treesitter and get a parse tree
           back ???
-        - this would also make the html a little cleaner
+        - [x] this would also make the html a little cleaner
+        - [ ] support highlight nested captures
+            - eg bash `var="$VAR"`
+        - [ ] support multi-line captures
 - [x] feature-full user commands
     - [ ] command line parsing is a little jank, should revisit
 - [x] templates: current templates are hardcoded

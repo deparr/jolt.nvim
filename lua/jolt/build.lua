@@ -61,90 +61,152 @@ local function add_if_not_present(list, new)
   end
 end
 
-local htmlbufnr = -1
-local htmlwinnr = -1
+local function capture_name_to_class_name(name)
+  return "hl-" .. (name:gsub("%.", "-"))
+end
 
-local function close_html_buf_win()
-  if vim.api.nvim_buf_is_valid(htmlbufnr) then
-    vim.api.nvim_buf_delete(htmlbufnr, { force = true })
+local function html_escape(str)
+  str = str:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
+  -- todo tabs ??
+  return str
+end
+
+---@param code string|string[] code block content, either as lines or string
+---@param lang string language to highlight as
+---@return table<string> rendered_lines, table<string> styles
+local function highlight_code(code, lang)
+  local code_lines
+  if type(code) == "table" then
+    code_lines = code
+    code = table.concat(code, "\n")
+  else
+    code_lines = vim.split(code, "\n")
   end
-  if vim.api.nvim_win_is_valid(htmlwinnr) then
-    vim.api.nvim_win_close(htmlwinnr, true)
+
+  local parser = vim.treesitter.get_string_parser(code, lang, {})
+  local root = parser:parse() or error("todo parse timed out")
+  if #root > 1 then
+    log("TODO wrap_and_highlight_code: parse injected languages")
   end
+  root = root[1]:root()
+  local queryset = vim.treesitter.query.get(lang, "highlights")
+
+  if not queryset then
+    log("no highlight queryset for lang: " .. lang, vim.log.levels.WARN)
+    return vim
+      .iter(code_lines)
+      :map(function(v)
+        return ('<span class="line">%s</span>'):format(v)
+      end)
+      :totable(),
+      {}
+  end
+
+  local rendered = {}
+  local styles = {}
+  local linenr = 0
+  local cursor = 0
+  local open_line = '<span class="line">'
+  local close_line = "</span>"
+  local empty_line = open_line .. close_line
+  local line = { open_line }
+  local finish_line = function(diff)
+    linenr = linenr + diff
+    table.insert(line, close_line)
+    table.insert(rendered, table.concat(line, ""))
+    -- insert empty after finished line, diff is number of lines between
+    -- line being finished and the next non-empty line
+    if diff > 1 then
+      for _ = 1, diff - 1 do
+        table.insert(rendered, empty_line)
+      end
+    end
+    line = { open_line }
+    cursor = 0
+  end
+
+  local function range_equal(a, b)
+    return a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4]
+  end
+  local function range_within(a, b)
+    return a[1] == b[1] and a[2] >= b[2] and a[4] <= b[4]
+  end
+  local prev_range = { -1, -1, -1, -1 }
+  for id, node in queryset:iter_captures(root, code) do
+    local name = queryset.captures[id]
+    local srow, scol, erow, ecol = node:range()
+
+    if name == "spell" or name == "nospell" or name == "none" or name:sub(1, 1) == "_" then
+      goto continue
+    end
+
+    styles["@" .. name] = true
+
+    if srow ~= erow then
+      log(
+        ("TSNode spans lines at code block %s:%d, output will likely be scuffed"):format(
+          lang,
+          linenr
+        )
+      )
+    end
+
+    if srow > linenr then
+      finish_line(srow - linenr)
+      prev_range = { -1, -1, -1, -1 }
+    end
+
+    local rendered_node = code_lines[linenr + 1]:sub(scol + 1, ecol)
+    local class = capture_name_to_class_name(name)
+    rendered_node = ('<span class="%s">%s</span>'):format(class, html_escape(rendered_node))
+
+    local cur_range = { srow, scol, erow, ecol, name = name }
+    if range_equal(cur_range, prev_range) then
+      if line[#line] == open_line then
+        log(lang .. ":" .. linenr .. " replaced a line open tag. this is likely a bug")
+      end
+      line[#line] = rendered_node
+      styles["@" .. prev_range.name] = nil
+    elseif range_within(cur_range, prev_range) then
+      -- todo nested captures will be harder than
+      -- I thought, just remove their hls for now
+      styles["@" .. cur_range.name] = nil
+    else
+      -- regular node
+      if scol > cursor then
+        local normal = code_lines[linenr + 1]:sub(cursor + 1, scol)
+        table.insert(line, html_escape(normal))
+      end
+
+      table.insert(line, rendered_node)
+
+      prev_range = cur_range
+      cursor = ecol
+    end
+
+    ::continue::
+  end
+
+  finish_line(0)
+
+  return rendered, vim.tbl_keys(styles)
 end
 
 ---@param code string|string[] code block content
 ---@param lang string language to highlight as
 ---@return string rendered, table<string> styles
-local function highlight_code(code, lang)
-  local tohtml = require("tohtml").tohtml
-  htmlbufnr = vim.api.nvim_buf_is_valid(htmlbufnr) and htmlbufnr
-    or vim.api.nvim_create_buf(true, true)
-  htmlwinnr = vim.api.nvim_win_is_valid(htmlwinnr) and htmlwinnr
-    or vim.api.nvim_open_win(htmlbufnr, false, { split = "right" })
+local function wrap_and_highlight_code(code, lang)
+  local rendered_lines, styles = highlight_code(code, lang)
 
-  vim.api.nvim_buf_set_lines(
-    htmlbufnr,
-    0,
-    -1,
-    false,
-    ---@diagnostic disable-next-line param-type-mismatch
-    type(code) == "string" and vim.split(code, "\n") or code
-  )
-  vim.bo[htmlbufnr].filetype = lang
-  local html = tohtml(htmlwinnr, {})
+  table.insert(rendered_lines, 1, "<code>")
+  table.insert(rendered_lines, 1, "<pre>")
+  table.insert(rendered_lines, 1, '<figure class="code-block">')
 
-  local style_start = html[7]
-  assert(vim.startswith(style_start, "<style>"), "bad style tag pos")
-  local styles = {}
+  table.insert(rendered_lines, "</code>")
+  table.insert(rendered_lines, "</pre>")
+  table.insert(rendered_lines, "</figure>")
 
-  for i = 8, #html do
-    local s = html[i]
-    if s == "</style>" then
-      break
-    end
-    local match = s:find("font%-family") or s:find("^%.%-spell") or s:find("^body")
-    if match == nil and not vim.tbl_contains(styles, s) then
-      table.insert(styles, s)
-    end
-  end
-
-  local pre_start = 7 + #styles + 1
-  while pre_start < #html do
-    local s = html[pre_start]
-    if s == "<pre>" then
-      break
-    end
-    pre_start = pre_start + 1
-  end
-
-  local blocks = {}
-  for i = pre_start + 1, #html do
-    local s = html[i]
-    if s == "</pre>" then
-      break
-    end
-
-    table.insert(blocks, s)
-  end
-
-  if blocks[#blocks] == "" then
-    blocks[#blocks] = nil
-  end
-
-  for i, v in ipairs(blocks) do
-    blocks[i] = ('<span class="line">%s</span>'):format(v)
-  end
-
-  table.insert(blocks, 1, "<code>")
-  table.insert(blocks, 1, "<pre>")
-  table.insert(blocks, 1, '<figure class="code-block">')
-
-  table.insert(blocks, "</code>")
-  table.insert(blocks, "</pre>")
-  table.insert(blocks, "</figure>")
-
-  local rendered = vim.trim(vim.iter(blocks):join("\n"))
+  local rendered = vim.trim(vim.iter(rendered_lines):join("\n"))
 
   return rendered, styles
 end
@@ -152,13 +214,13 @@ end
 ---@param name string css class name to convert
 ---@return string vim_hl_name
 local function class_name_to_hl_name(name)
-  return (name:sub(2):gsub("^%-", "@"):gsub("%-", "."):match("^(%S+) .*$"))
+  return (name:gsub("^hl-", "@"):gsub("%-", "."))
 end
 
 ---@param name string vim hl_group to convert
 ---@return string css_class_name
 local function hl_name_to_class_name(name)
-  return (name:gsub("%.", "-"):gsub("@", "-"))
+  return (name:gsub("^%@", "hl-"):gsub("%.+", "-"))
 end
 
 local function hex_to_str(c)
@@ -226,7 +288,7 @@ local function generate_code_styles(opts, hl_groups)
     vim.o.bg = "dark"
     vim.cmd.colorscheme(opts.code_style.dark)
     dark = generate_styles_for_colorscheme(get_hl_defs(hl_groups))
-    if #vim.tbl_keys(vim.api.nvim_list_uis()) > 0 then
+    if not config.headless then
       vim.o.bg = restore_bg
       vim.cmd.colorscheme(restore)
     end
@@ -266,7 +328,7 @@ function M.filter(document, code_styles)
       code_block = function(element)
         element.tag = "raw_block"
         element.format = "html"
-        local code, styles = highlight_code(vim.trim(element.text), element.lang)
+        local code, styles = wrap_and_highlight_code(vim.trim(element.text), element.lang)
         element.text = code
         add_if_not_present(code_styles, styles)
       end,
@@ -388,12 +450,9 @@ function M.build_all(opts)
   write_all(out_paths)
 
   if #code_styles > 0 then
-    local hl_groups = vim.iter(code_styles):map(class_name_to_hl_name):totable()
-    local hl_styles = generate_code_styles(opts, hl_groups)
+    local hl_styles = generate_code_styles(opts, code_styles)
     static["css/highlight.css"] = hl_styles
   end
-
-  close_html_buf_win()
 
   M.write_static(static, opts)
 
@@ -419,7 +478,7 @@ function M.build_changeset(files, opts)
     if ext == "dj" then
       local raw = load_file(real_path)
       local ast = djot.parse(raw, false, function(a)
-        log("djot: ", vim.inspect(a))
+        log("djot: " .. vim.inspect(a))
       end)
       pages[path_noext] = ast
     elseif ext == "html" then
@@ -482,8 +541,6 @@ function M.build_changeset(files, opts)
     end
   end
 
-  close_html_buf_win()
-
   M.write_static(static, opts)
 
   if #vim.tbl_keys(updated_templates) > 0 then
@@ -502,8 +559,8 @@ function M.write_static(static, opts)
     if type(content) == "boolean" and content then
       local in_ = fs.joinpath(opts.content_dir, file)
       ensure_dir_exists(out)
-      local suc, err = vim.uv.fs_copyfile(in_, out, nil)
-      if not suc then
+      local _, err = vim.uv.fs_copyfile(in_, out, nil)
+      if err then
         log(err)
       end
     elseif type(content) == "string" then
