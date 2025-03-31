@@ -92,6 +92,7 @@ local function highlight_code(code, lang)
   local queryset = vim.treesitter.query.get(lang, "highlights")
 
   if not queryset then
+    log("no highlight queryset for lang: " .. lang, vim.log.levels.WARN)
     return vim
       .iter(code_lines)
       :map(function(v)
