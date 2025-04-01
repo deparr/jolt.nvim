@@ -31,7 +31,8 @@ and boom! a static site is now available at `build/`
         - [x] this would also make the html a little cleaner
         - [ ] support highlight nested captures
             - eg bash `var="$VAR"`
-        - [ ] support multi-line captures
+        - [x] support multi-line captures
+            - rust doc comments don't work because the rust parser is trash
 - [x] feature-full user commands
     - [ ] command line parsing is a little jank, should revisit
 - [x] templates: current templates are hardcoded

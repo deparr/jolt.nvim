@@ -71,10 +71,17 @@ local function html_escape(str)
   return str
 end
 
+local function wrap_lines_no_hl(lines)
+  return vim.iter(lines):map(function (v)
+    return ('<span class="line">%s</span>'):format(v)
+  end):totable()
+end
+
 ---@param code string|string[] code block content, either as lines or string
 ---@param lang string language to highlight as
 ---@return table<string> rendered_lines, table<string> styles
 local function highlight_code(code, lang)
+  local log = require("jolt.log").scoped("build.hl")
   local code_lines
   if type(code) == "table" then
     code_lines = code
@@ -83,7 +90,11 @@ local function highlight_code(code, lang)
     code_lines = vim.split(code, "\n")
   end
 
-  local parser = vim.treesitter.get_string_parser(code, lang, {})
+  local ok, parser = pcall(vim.treesitter.get_string_parser, code, lang, {})
+  if not ok then
+    log("unable to load parser for " .. lang .. ". Is it installed?", vim.log.levels.WARN)
+    return wrap_lines_no_hl(code_lines),{}
+  end
   local root = parser:parse() or error("todo parse timed out")
   if #root > 1 then
     log("TODO wrap_and_highlight_code: parse injected languages")
@@ -93,13 +104,7 @@ local function highlight_code(code, lang)
 
   if not queryset then
     log("no highlight queryset for lang: " .. lang, vim.log.levels.WARN)
-    return vim
-      .iter(code_lines)
-      :map(function(v)
-        return ('<span class="line">%s</span>'):format(v)
-      end)
-      :totable(),
-      {}
+    return wrap_lines_no_hl(code_lines), {}
   end
 
   local rendered = {}
@@ -109,6 +114,7 @@ local function highlight_code(code, lang)
   local open_line = '<span class="line">'
   local close_line = "</span>"
   local empty_line = open_line .. close_line
+  local hl_span_fmt = '<span class="%s">%s</span>'
   local line = { open_line }
   local finish_line = function(diff)
     linenr = linenr + diff
@@ -135,6 +141,7 @@ local function highlight_code(code, lang)
   for id, node in queryset:iter_captures(root, code) do
     local name = queryset.captures[id]
     local srow, scol, erow, ecol = node:range()
+    local cur_range = { srow, scol, erow, ecol, name = name }
 
     if name == "spell" or name == "nospell" or name == "none" or name:sub(1, 1) == "_" then
       goto continue
@@ -142,25 +149,43 @@ local function highlight_code(code, lang)
 
     styles["@" .. name] = true
 
-    if srow ~= erow then
-      log(
-        ("TSNode spans lines at code block %s:%d, output will likely be scuffed"):format(
-          lang,
-          linenr
-        )
-      )
-    end
-
     if srow > linenr then
       finish_line(srow - linenr)
       prev_range = { -1, -1, -1, -1 }
     end
 
-    local rendered_node = code_lines[linenr + 1]:sub(scol + 1, ecol)
-    local class = capture_name_to_class_name(name)
-    rendered_node = ('<span class="%s">%s</span>'):format(class, html_escape(rendered_node))
+    if scol > cursor then
+      local normal = code_lines[linenr + 1]:sub(cursor + 1, scol)
+      table.insert(line, html_escape(normal))
+    end
 
-    local cur_range = { srow, scol, erow, ecol, name = name }
+    local class = capture_name_to_class_name(name)
+    if srow ~= erow then
+      if not range_equal(cur_range, prev_range) then
+        local line_str = code_lines[linenr + 1]
+        line_str = html_escape(line_str:sub(scol + 1))
+        table.insert(line, hl_span_fmt:format(class, line_str))
+        finish_line(1)
+
+        while linenr < erow do
+          line_str = html_escape(code_lines[linenr + 1])
+          table.insert(line, hl_span_fmt:format(class, line_str))
+          finish_line(1)
+        end
+
+        if ecol > 0 then
+          line_str = html_escape(code_lines[linenr + 1]:sub(1, ecol))
+          table.insert(line, hl_span_fmt:format(class, line_str))
+        end
+        cursor = ecol
+        prev_range = cur_range
+      end
+      goto continue
+    end
+
+    local rendered_node = code_lines[linenr + 1]:sub(scol + 1, ecol)
+    rendered_node = hl_span_fmt:format(class, html_escape(rendered_node))
+
     if range_equal(cur_range, prev_range) then
       if line[#line] == open_line then
         log(lang .. ":" .. linenr .. " replaced a line open tag. this is likely a bug")
@@ -173,11 +198,6 @@ local function highlight_code(code, lang)
       styles["@" .. cur_range.name] = nil
     else
       -- regular node
-      if scol > cursor then
-        local normal = code_lines[linenr + 1]:sub(cursor + 1, scol)
-        table.insert(line, html_escape(normal))
-      end
-
       table.insert(line, rendered_node)
 
       prev_range = cur_range
