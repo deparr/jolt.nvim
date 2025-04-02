@@ -273,9 +273,10 @@ local function generate_styles_for_colorscheme(hl_groups)
     }
     local attrs = {
       color = hl.fg and hex_to_str(hl.fg) or nil,
+      ["background-color"] = hl.bg and hex_to_str(hl.bg) or nil,
       ["font-style"] = hl.italic and "italic" or nil,
       ["font-weight"] = hl.bold and "bold" or nil,
-      ["text-decoration-line"] = not #line == 0 and table.concat(line, " ") or nil,
+      ["text-decoration-line"] = #line > 0 and table.concat(line, " ") or nil,
       ["text-decoration-color"] = hl.sp and hex_to_str(hl.sp) or nil,
       ["text-decoration-style"] = hl.undercurl and "wavy" or nil,
     }
