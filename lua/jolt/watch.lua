@@ -37,6 +37,13 @@ function M.start(opts)
     return
   end
 
+  local send_changeset = vim.schedule_wrap(function()
+    build.build_changeset(changed_files)
+    changed_files = {}
+  end)
+  -- todo recurive flag is unsupported on linux
+  --    create a fs event for each sub dir
+  --    (this might even be the way for all)
   uv.fs_event_start(handle, opts.content_dir, { recursive = true }, function(err, f, e)
     if err then
       vim.schedule(function()
@@ -68,16 +75,15 @@ function M.start(opts)
     end
 
     debounce:start(debounce_time, debounce_time, function()
-      vim.schedule(function()
-        log("got changes, rebuilding...")
-        build.build_changeset(changed_files)
-        changed_files = {}
-      end)
+      send_changeset()
       debounce:stop()
     end)
   end)
 
   vim.g.jolt_watching = true
+  if uv.os_uname().sysname:find("[Ll]inux") then
+    log("recursive watch unsupported on linux :(", vim.log.levels.WARN)
+  end
   log(("watching '%s' for changes..."):format(opts.content_dir))
 end
 
