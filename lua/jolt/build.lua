@@ -72,9 +72,12 @@ local function html_escape(str)
 end
 
 local function wrap_lines_no_hl(lines)
-  return vim.iter(lines):map(function (v)
-    return ('<span class="line">%s</span>'):format(v)
-  end):totable()
+  return vim
+    .iter(lines)
+    :map(function(v)
+      return ('<span class="line">%s</span>'):format(v)
+    end)
+    :totable()
 end
 
 ---@param code string|string[] code block content, either as lines or string
@@ -93,7 +96,7 @@ local function highlight_code(code, lang)
   local ok, parser = pcall(vim.treesitter.get_string_parser, code, lang, {})
   if not ok then
     log("unable to load parser for " .. lang .. ". Is it installed?", vim.log.levels.WARN)
-    return wrap_lines_no_hl(code_lines),{}
+    return wrap_lines_no_hl(code_lines), {}
   end
   local root = parser:parse() or error("todo parse timed out")
   if #root > 1 then
@@ -398,8 +401,6 @@ function M.build_all(opts)
     vim.fn.mkdir(opts.out_dir, "p")
   end
 
-  log("start")
-
   local pages = {}
   local static = {}
 
@@ -555,9 +556,7 @@ function M.build_changeset(files, opts)
     local old_style_len = #code_styles
     add_if_not_present(code_styles, new_code_styles)
     if old_style_len ~= #code_styles then
-      local hl_groups = vim.iter(code_styles):map(class_name_to_hl_name):totable()
-      local hl_styles = generate_code_styles(opts, hl_groups)
-      static["css/highlight.css"] = hl_styles
+      static["css/highlight.css"] = generate_code_styles(opts, code_styles)
     end
   end
 
@@ -567,7 +566,16 @@ function M.build_changeset(files, opts)
     log("template reloading current unsupported :(")
   end
 
-  log("complete")
+  log(("rendered %d files"):format(#vim.tbl_keys(pages) + #vim.tbl_keys(static)))
+end
+
+function M.build_highlight_sheet(opts)
+  opts = config.extend(opts)
+  if #code_styles == 0 then
+    return ""
+  end
+  local hl_sheet = generate_code_styles(opts, code_styles)
+  return hl_sheet
 end
 
 ---@param static table<string, string|boolean> files to copy
