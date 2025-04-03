@@ -327,9 +327,10 @@ end
 
 ---@param document AST djot ast
 ---@param code_styles table<string> list of highlight groups used by code blocks
----@return table<string, string|number> metadata
+---@return table metadata
 --- Filters a page. Highlighting code blocks, anchoring headers, and setting metadata
-function M.filter(document, code_styles)
+function M.filter(document, code_styles, opts)
+  opts = config.extend(opts)
   local metadata = {}
   local filters = {
     {
@@ -359,7 +360,7 @@ function M.filter(document, code_styles)
       raw_block = function(element)
         if element.format == "meta" then
           for line in element.text:gmatch("[^\n]+") do
-            local key, value = line:match("(%w+) *=%s*(.+)$")
+            local key, value = line:match("([%w_]+) *=%s*(.+)$")
             metadata[key] = value
           end
         end
@@ -380,6 +381,20 @@ function M.filter(document, code_styles)
     },
   }
   djot.filter.apply_filter(document, filters)
+
+  metadata.template = metadata.template or opts.default_template
+  metadata.title = metadata.title or opts.default_title
+  metadata.description = metadata.description or metadata.title
+
+  ---@diagnostic disable
+  --- lua ls doesn't like string -> string[]
+  if metadata.template:find("%,") then
+    metadata.template = vim.split(metadata.template, ",", { trimempty = true })
+  else
+    metadata.template = { metadata.template }
+  end
+  ---@diagnostic enable
+
   return metadata
 end
 
@@ -432,10 +447,7 @@ function M.build_all(opts)
 
   local out_paths = {}
   for url, document in pairs(pages) do
-    local metadata = M.filter(document, code_styles)
-    metadata.title = metadata.title or opts.default_title
-    metadata.template = metadata.template or opts.default_template
-    metadata.description = metadata.description or metadata.title
+    local metadata = M.filter(document, code_styles, opts)
     if metadata.slot then
       log(url .. " has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
       metadata.slot = nil
@@ -446,8 +458,10 @@ function M.build_all(opts)
     -- todo nested templates
     local rendered = djot.render_html(document)
     rendered_pages[url] = rendered
-    rendered = templates[metadata.template]:gsub(opts.template_main_slot, rendered)
-    rendered = rendered:gsub("::([%w_]+)::", metadata)
+    for _, template in ipairs(metadata.template) do
+      rendered = templates[template]:gsub(opts.template_main_slot, rendered)
+      rendered = rendered:gsub("::([%w_]+)::", metadata)
+    end
 
     local out_path
     -- speical cases
@@ -500,7 +514,7 @@ function M.build_changeset(files, opts)
     if ext == "dj" then
       local raw = load_file(real_path)
       local ast = djot.parse(raw, false, function(a)
-        log("djot: " .. vim.inspect(a))
+        log("djot: " .. vim.inspect(a, { newline = "" }))
       end)
       pages[path_noext] = ast
     elseif ext == "html" then
@@ -516,10 +530,7 @@ function M.build_changeset(files, opts)
   local out_paths = {}
   -- todo dedup this
   for url, document in pairs(pages) do
-    local metadata = M.filter(document, new_code_styles)
-    metadata.title = metadata.title or opts.default_title
-    metadata.template = metadata.template or opts.default_template
-    metadata.description = metadata.description or metadata.title
+    local metadata = M.filter(document, new_code_styles, opts)
     if metadata.slot then
       log(url .. " has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
       metadata.slot = nil
