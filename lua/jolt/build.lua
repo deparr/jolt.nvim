@@ -417,94 +417,28 @@ function M.build_all(opts)
     vim.fn.mkdir(opts.out_dir, "p")
   end
 
-  local pages = {}
-  local static = {}
-
+  local files = {}
   for file, type in fs.dir(opts.content_dir, { depth = opts.depth }) do
-    if type == "directory" then
-    elseif type == "file" then
-      local ext = vim.fn.fnamemodify(file, ":e")
-      local basename = vim.fn.fnamemodify(file, ":t:r")
-      local path_noext = vim.fn.fnamemodify(file, ":r")
-      local real_path = fs.joinpath(opts.content_dir, file)
-
-      if ext == "dj" then
-        local raw = load_file(real_path)
-        local ast = djot.parse(raw, false, function(a)
-          log("djot: ", a)
-        end)
-        pages[path_noext] = ast
-      elseif ext == "html" then
-        local templ = load_file(real_path)
-        templates[basename] = templ
-      else
-        -- todo maybe some sort of user is_static filter
-        local should_copy = file:match("^.+%.dj%.draft$") == nil
-        static[file] = should_copy
-      end
+    if type == "file" then
+      files[file] = true
     end
   end
 
-  local out_paths = {}
-  for url, document in pairs(pages) do
-    local metadata = M.filter(document, code_styles, opts)
-    if metadata.slot then
-      log(url .. " has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
-      metadata.slot = nil
-    end
-
-    page_metadata[url] = metadata
-
-    -- todo nested templates
-    local rendered = djot.render_html(document)
-    rendered_pages[url] = rendered
-    for _, template in ipairs(metadata.template) do
-      rendered = templates[template]:gsub(opts.template_main_slot, rendered)
-      rendered = rendered:gsub("::([%w_]+)::", metadata)
-    end
-
-    local out_path
-    -- speical cases
-    -- index -> index.html
-    -- 404 -> 404.html
-    local tail = fs.basename(url)
-    if tail == "404" or tail == "index" then
-      out_path = fs.joinpath(opts.out_dir, url .. ".html")
-    else
-      out_path = fs.joinpath(opts.out_dir, url, "index.html")
-    end
-
-    if out_paths[out_path] ~= nil then
-      log(
-        ("muilple in-files mapped to same the out-file '%s'"):format(out_path),
-        vim.log.levels.WARN
-      )
-    end
-    out_paths[out_path] = rendered
-  end
-
-  write_all(out_paths)
-
-  if #code_styles > 0 then
-    local hl_styles = generate_code_styles(opts, code_styles)
-    static["css/highlight.css"] = hl_styles
-  end
-
-  M.write_static(static, opts)
-
-  -- log(("build: %s"):format(vim.inspect(vim.tbl_keys(rendered_pages))))
-  log(("complete, rendered %d pages"):format(#vim.tbl_keys(out_paths)))
+  M.build_changeset(files, opts)
 end
 
----@param files table<string> the changeset, file paths relative to `opts.content_dir`
+--- Renders or copies the specified files to the build directory.
+--- Assumes the build directory exists.
+---
+--- IMPORTANT: the keys of `files` are taken as the input files, their values are ignored.
+---@param files table<string, any> the changeset, file paths relative to `opts.content_dir`
 ---@param opts? jolt.Config
 function M.build_changeset(files, opts)
   opts = opts or config.extend()
-  local pages = {}
+  local updated_pages = {}
   local updated_templates = {}
   local static = {}
 
-  -- todo dedup this
   for file, _ in pairs(files) do
     local ext = vim.fn.fnamemodify(file, ":e")
     local basename = vim.fn.fnamemodify(file, ":t:r")
@@ -516,7 +450,7 @@ function M.build_changeset(files, opts)
       local ast = djot.parse(raw, false, function(a)
         log("djot: " .. vim.inspect(a, { newline = "" }))
       end)
-      pages[path_noext] = ast
+      updated_pages[path_noext] = ast
     elseif ext == "html" then
       local templ = load_file(real_path)
       updated_templates[basename] = templ
@@ -526,10 +460,12 @@ function M.build_changeset(files, opts)
     end
   end
 
+  for name, new_template in pairs(updated_templates) do
+    templates[name] = new_template
+  end
+
   local new_code_styles = {}
-  local out_paths = {}
-  -- todo dedup this
-  for url, document in pairs(pages) do
+  for url, document in pairs(updated_pages) do
     local metadata = M.filter(document, new_code_styles, opts)
     if metadata.slot then
       log(url .. " has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
@@ -539,9 +475,40 @@ function M.build_changeset(files, opts)
 
     local rendered = djot.render_html(document)
     rendered_pages[url] = rendered
-    rendered = templates[metadata.template]:gsub(opts.template_main_slot, rendered)
-    rendered = rendered:gsub("::([%w_]+)::", metadata)
+  end
 
+  local fully_rendered_pages = {}
+  local substitute_templates = function(url)
+    local metadata = page_metadata[url]
+    local rendered = rendered_pages[url]
+    for _, template in ipairs(metadata.template) do
+      rendered = templates[template]:gsub(opts.template_main_slot, rendered)
+      rendered = rendered:gsub("::([%w_]+)::", metadata)
+    end
+    fully_rendered_pages[url] = rendered
+  end
+
+  for _, url in ipairs(vim.tbl_keys(updated_pages)) do
+    substitute_templates(url)
+  end
+
+  local updated_template_names = vim.tbl_keys(updated_templates)
+  if #updated_template_names > 0 then
+    for _, url in ipairs(vim.tbl_keys(rendered_pages)) do
+      if not updated_pages[url] then
+        local metadata = assert(page_metadata[url], "nil metadata on a rendered page")
+        for _, template_name in ipairs(updated_template_names) do
+          if vim.tbl_contains(metadata.template, template_name) then
+            substitute_templates(url)
+            break
+          end
+        end
+      end
+    end
+  end
+
+  local out_paths = {}
+  for url, rendered_html in pairs(fully_rendered_pages) do
     local out_path
     -- speical cases
     -- index -> index.html
@@ -559,7 +526,7 @@ function M.build_changeset(files, opts)
         vim.log.levels.WARN
       )
     end
-    out_paths[out_path] = rendered
+    out_paths[out_path] = rendered_html
   end
 
   write_all(out_paths)
@@ -574,11 +541,12 @@ function M.build_changeset(files, opts)
 
   M.write_static(static, opts)
 
-  if #vim.tbl_keys(updated_templates) > 0 then
-    log("template reloading current unsupported :(")
-  end
-
-  log(("rendered %d files"):format(#vim.tbl_keys(pages) + #vim.tbl_keys(static)))
+  log(
+    ("rendered %d pages, %d static files"):format(
+      #vim.tbl_keys(fully_rendered_pages),
+      #vim.tbl_keys(static)
+    )
+  )
 end
 
 function M.build_highlight_sheet(opts)
