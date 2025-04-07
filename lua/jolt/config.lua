@@ -5,8 +5,8 @@ M.headless = #vim.api.nvim_list_uis() == 0
 
 ---@class jolt.Config
 M.defaults = {
-  out_dir = vim.fs.joinpath(vim.fn.getcwd(), "build/"),
-  content_dir = vim.fs.joinpath(vim.fn.getcwd(), "content/"),
+  out_dir = vim.fs.joinpath(vim.fn.getcwd(), "build"),
+  content_dir = vim.fs.joinpath(vim.fn.getcwd(), "content"),
   --- maximum depth when scanning content_dir
   depth = 10,
   template_main_slot = "::slot::",
