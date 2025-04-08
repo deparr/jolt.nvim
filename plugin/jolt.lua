@@ -10,7 +10,6 @@ vim.api.nvim_create_user_command("Jolt", function(args)
   local main = args.fargs[1] or "build"
   local sub = args.fargs[2]
 
-  -- todo clean this up
   local cmd
   if main == "build" then
     cmd = jolt.build
@@ -26,6 +25,11 @@ vim.api.nvim_create_user_command("Jolt", function(args)
   end
 
   if sub then
+    local subcmds = commands.subcommands[main]
+    if not vim.list_contains(subcmds, sub) then
+      jolt.log(("invalid subcommand '%s' for command '%s'"):format(sub, main), vim.log.levels.ERROR)
+      return
+    end
     if sub == "start" then
       cmd = function()
         jolt.start(main)
@@ -35,18 +39,8 @@ vim.api.nvim_create_user_command("Jolt", function(args)
         jolt.stop(main)
       end
     else
-      if main == "build" then
-        jolt.log("build sub commands are unimplemented", vim.log.levels.ERROR)
-        return
-        -- cmd = function()
-        --   jolt.build(sub)
-        -- end
-      else
-        jolt.log(
-          ("invalid subcommand '%s' for command '%s'"):format(sub, main),
-          vim.log.levels.ERROR
-        )
-        return
+      cmd = function()
+        jolt.build(sub)
       end
     end
   end

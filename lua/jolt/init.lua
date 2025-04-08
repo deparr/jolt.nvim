@@ -15,8 +15,14 @@ M.setup = config.setup
 M.build = function(what)
   if not what then
     build.build_all()
+  elseif what == "pages" then
+    local pages = build.scan_pages()
+    build.build_changeset(pages)
+  elseif what == "static" then
+    local static = build.scan_static()
+    build.build_changeset(static)
   else
-    log("TODO granular build unimplemented")
+    log("invalid build sub-set: " .. what)
   end
 end
 M.clean = build.clean

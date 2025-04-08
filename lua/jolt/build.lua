@@ -398,6 +398,44 @@ function M.filter(document, code_styles, opts)
   return metadata
 end
 
+local function scan(pred, opts)
+  local ret = {}
+  for file, type in fs.dir(opts.content_dir, { depth = opts.depth }) do
+    local ext = vim.fn.fnamemodify(file, ":e")
+    if pred(file, type, ext) then
+      ret[file] = true
+    end
+  end
+  return ret
+end
+
+function M.scan_pages(opts)
+  opts = config.extend(opts)
+  return scan(function(_, t, e)
+    return t == "file" and (e == "dj" or e == "djot")
+  end, opts)
+end
+
+function M.scan_templates(opts)
+  opts = config.extend(opts)
+  return scan(function(_, t, e)
+    return t == "file" and e == "html"
+  end, opts)
+end
+
+function M.scan_static(opts)
+  opts = config.extend(opts)
+  return scan(function(f, t, e)
+    return (
+      t == "file"
+      and e ~= "dj"
+      and e ~= "djot"
+      and e ~= "html"
+      and not f:find("%.dj%.draft$")
+    )
+  end, opts)
+end
+
 -- Build State
 local page_metadata = {}
 local templates = {}
@@ -417,12 +455,9 @@ function M.build_all(opts)
     vim.fn.mkdir(opts.out_dir, "p")
   end
 
-  local files = {}
-  for file, type in fs.dir(opts.content_dir, { depth = opts.depth }) do
-    if type == "file" then
-      files[file] = true
-    end
-  end
+  local files = scan(function(_, t, _)
+    return t == "file"
+  end, opts)
 
   M.build_changeset(files, opts)
 end
