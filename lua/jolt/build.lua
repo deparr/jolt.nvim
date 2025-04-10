@@ -95,7 +95,9 @@ local function highlight_code(code, lang)
 
   local ok, parser = pcall(vim.treesitter.get_string_parser, code, lang, {})
   if not ok then
-    log("unable to load parser for " .. lang .. ". Is it installed?", vim.log.levels.WARN)
+    if lang then
+      log("unable to load parser for " .. lang .. ". Is it installed?", vim.log.levels.WARN)
+    end
     return wrap_lines_no_hl(code_lines), {}
   end
   local root = parser:parse() or error("todo parse timed out")
