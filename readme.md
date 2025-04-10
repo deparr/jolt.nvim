@@ -58,3 +58,6 @@ and boom! a static site is now available at `build/`
     - [ ] which "url mode": i.e. whether `/blog/some-post.dj` should
       become `/blog/some-post.html` or `/blog/some-post/index.html`
 
+## License
+
+The Djot lua module (all files in `lua/djot`) is licensed under [lua/djot/LICENSE](lua/djot/LICENCE)
