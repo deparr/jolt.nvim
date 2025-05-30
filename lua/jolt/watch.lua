@@ -56,11 +56,12 @@ function M.start(opts)
       return
     end
 
+
     if not f or f == "" or f:match("%~$") or f:match("^%d+$") then
       return
     end
 
-    local stat = uv.fs_stat(opts.content_dir .. f)
+    local stat = uv.fs_stat(vim.fs.joinpath(opts.content_dir, f))
     if not stat or stat.type == "directory" or mtimes[f] == stat.mtime.sec then
       return
     else
