@@ -33,16 +33,19 @@ and boom! a static site is now available at `build/`
             - eg bash `var="$VAR"`
         - [x] support multi-line captures
             - rust doc comments don't work because the rust parser is trash
+        - [ ] support language specific treesitter capture groups
+            - eg `function.builtin.zig` different from
+              `function.builtin`
 - [x] feature-full user commands
-    - [ ] command line parsing is a little jank, should revisit
+    - [x] command line parsing is a little jank, should revisit
 - [x] templates: current templates are hardcoded
-    - [ ] should be able to nest templates
+    - [x] should be able to nest templates
     - [x] templates should be able to be scanned in any order
-        - [ ] components ???
+        - [x] components ???
 - [x] watch mode
     - [x] use libuv to watch the uses content dir for changes
     - [x] should be granular if possible, only rebuild what changed
-        - [ ] support live template changes
+        - [x] support live template changes
     - [ ] should be able to serve at the same time
 - [ ] serve mode
     - run a user supplied system command to serve the build directory
