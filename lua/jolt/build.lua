@@ -5,17 +5,6 @@ local fs = vim.fs
 
 local M = {}
 
----@param opts? jolt.Config
---- cleans `opts.out_dir`, if it exists
-function M.clean(opts)
-  opts = opts or config.extend()
-  if opts.out_dir ~= "~" or opts.out_dir ~= "/" then
-    fs.rm(opts.out_dir, { recursive = true, force = true })
-  else
-    log(("wont remove out dir '%s'"):format(opts.out_dir), vim.log.levels.ERROR)
-  end
-end
-
 local function load_file(path)
   local f, err = io.open(path, "r")
   if not f then
@@ -71,15 +60,6 @@ local function html_escape(str)
   return str
 end
 
-local function wrap_lines_no_hl(lines)
-  return vim
-    .iter(lines)
-    :map(function(v)
-      return ('<span class="line">%s</span>'):format(v)
-    end)
-    :totable()
-end
-
 ---@param code string|string[] code block content, either as lines or string
 ---@param lang string language to highlight as
 ---@return table<string> rendered_lines, table<string> styles
@@ -98,7 +78,7 @@ local function highlight_code(code, lang)
     if lang then
       log("unable to load parser for " .. lang .. ". Is it installed?", vim.log.levels.WARN)
     end
-    return wrap_lines_no_hl(code_lines), {}
+    return code_lines, {}
   end
   local root = parser:parse() or error("todo parse timed out")
   if #root > 1 then
@@ -109,33 +89,23 @@ local function highlight_code(code, lang)
 
   if not queryset then
     log("no highlight queryset for lang: " .. lang, vim.log.levels.WARN)
-    return wrap_lines_no_hl(code_lines), {}
+    return code_lines, {}
   end
 
   local rendered = {}
   local styles = {}
   local linenr = 0
   local cursor = 0
-  local open_line = '<span class="line">'
-  local close_line = "</span>"
-  local empty_line = open_line .. close_line
   local hl_span_fmt = '<span class="%s">%s</span>'
-  local line = { open_line }
+  local line = {}
   local finish_line = function(diff)
     linenr = linenr + diff
-    table.insert(line, close_line)
     table.insert(rendered, table.concat(line, ""))
-    -- insert empty after finished line, diff is number of lines between
-    -- line being finished and the next non-empty line
-    if diff > 1 then
-      for _ = 1, diff - 1 do
-        table.insert(rendered, empty_line)
-      end
-    end
-    line = { open_line }
+    line = {}
     cursor = 0
   end
 
+  -- TODO: read treesitter docs, there might be an intended parsing strategy
   local function range_equal(a, b)
     return a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4]
   end
@@ -192,9 +162,6 @@ local function highlight_code(code, lang)
     rendered_node = hl_span_fmt:format(class, html_escape(rendered_node))
 
     if range_equal(cur_range, prev_range) then
-      if line[#line] == open_line then
-        log(lang .. ":" .. linenr .. " replaced a line open tag. this is likely a bug")
-      end
       line[#line] = rendered_node
       styles["@" .. prev_range.name] = nil
     elseif range_within(cur_range, prev_range) then
@@ -222,14 +189,12 @@ end
 ---@return string rendered, table<string> styles
 local function wrap_and_highlight_code(code, lang)
   local rendered_lines, styles = highlight_code(code, lang)
-
-  table.insert(rendered_lines, 1, "<code>")
-  table.insert(rendered_lines, 1, "<pre>")
-  table.insert(rendered_lines, 1, '<figure class="code-block">')
-
-  table.insert(rendered_lines, "</code>")
-  table.insert(rendered_lines, "</pre>")
-  table.insert(rendered_lines, "</figure>")
+  if lang then
+    rendered_lines[1] = ('<pre class="%s"><code class="%s">'):format(lang, lang) .. rendered_lines[1]
+  else
+    rendered_lines[1] = '<pre><code>' .. rendered_lines[1]
+  end
+  rendered_lines[#rendered_lines] = rendered_lines[#rendered_lines] .. "</code></pre>"
 
   local rendered = vim.trim(vim.iter(rendered_lines):join("\n"))
 
@@ -322,7 +287,7 @@ local function generate_code_styles(opts, hl_groups)
 
   return ([[%s
 
-@media(prefers-color-scheme: light) {
+[data-theme="light"] {
 	%s
 }]]):format(table.concat(dark, "\n"), table.concat(light, "\n\t"))
 end
@@ -613,6 +578,22 @@ function M.write_static(static, opts)
       write_file(out, content)
     end
   end
+end
+
+---@param opts? jolt.Config
+--- cleans `opts.out_dir`, if it exists
+function M.clean(opts)
+  opts = opts or config.extend()
+  if opts.out_dir ~= "~" or opts.out_dir ~= "/" then
+    fs.rm(opts.out_dir, { recursive = true, force = true })
+  else
+    log(("wont remove out dir '%s'"):format(opts.out_dir), vim.log.levels.ERROR)
+  end
+
+  page_metadata = {}
+  templates = {}
+  code_styles = {}
+  rendered_pages = {}
 end
 
 return M
