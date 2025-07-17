@@ -103,6 +103,9 @@ local function highlight_code(code, lang)
     table.insert(rendered, table.concat(line, ""))
     line = {}
     cursor = 0
+    for _ = 1, diff - 1 do
+      table.insert(rendered, "")
+    end
   end
 
   -- TODO: read treesitter docs, there might be an intended parsing strategy
