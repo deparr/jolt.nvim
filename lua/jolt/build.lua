@@ -587,11 +587,12 @@ end
 --- cleans `opts.out_dir`, if it exists
 function M.clean(opts)
   opts = opts or config.extend()
-  if opts.out_dir ~= "~" or opts.out_dir ~= "/" then
-    fs.rm(opts.out_dir, { recursive = true, force = true })
-  else
+  -- todo research/workout a better way to make this safe
+  if opts.out_dir == "~" or opts.out_dir == "/" or opts.out_dir == os.getenv("HOME") then
     log(("wont remove out dir '%s'"):format(opts.out_dir), vim.log.levels.ERROR)
+    return
   end
+    fs.rm(opts.out_dir, { recursive = true, force = true })
 
   page_metadata = {}
   templates = {}
