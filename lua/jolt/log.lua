@@ -1,5 +1,3 @@
-local config = require("jolt.config")
-
 local M = {}
 
 local default_prefix = "jolt: "
@@ -10,7 +8,7 @@ local default_prefix = "jolt: "
 --- Omitting scope results in a `"jolt: "` prefix
 function M.scoped(scope)
   local prefix = (scope and #scope > 0) and ("jolt(%s): "):format(scope) or default_prefix
-  return config.headless and function(msg)
+  return require("jolt.config").headless and function(msg)
     -- vim.print(prefix .. msg)
     io.write(prefix, msg, "\n")
   end or function(msg, l)

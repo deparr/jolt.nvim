@@ -3,10 +3,10 @@ if vim.g.loaded_jolt then
 end
 vim.g.loaded_jolt = true
 
-local jolt = require("jolt")
-local commands = require("jolt.command")
-
 vim.api.nvim_create_user_command("Jolt", function(args)
+  local jolt = require("jolt")
+  local commands = require("jolt.command")
+
   local main = args.fargs[1] or "build"
   local sub = args.fargs[2]
 
@@ -63,7 +63,7 @@ end, {
     local new_arg = lead ~= ""
     if n == 1 or n == 2 and new_arg then
       return vim
-        .iter(commands.main)
+        .iter(require("jolt.command").main)
         :filter(function(v)
           return vim.startswith(v, lead)
         end)
@@ -71,6 +71,6 @@ end, {
     end
 
     local main = args[2]
-    return (n < 3 or (new_arg and n == 3)) and commands[main](lead) or {}
+    return (n < 3 or (new_arg and n == 3)) and require("jolt.command")[main](lead) or {}
   end,
 })
