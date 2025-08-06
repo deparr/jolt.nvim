@@ -290,9 +290,9 @@ local function generate_code_styles(opts, hl_groups)
 
   return ([[%s
 
-[data-theme="light"] {
+[data-theme="dark"] {
 	%s
-}]]):format(table.concat(dark, "\n"), table.concat(light, "\n\t"))
+}]]):format(table.concat(light, "\n"), table.concat(dark, "\n\t"))
 end
 
 ---@param document AST djot ast
