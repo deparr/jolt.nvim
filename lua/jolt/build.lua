@@ -56,6 +56,13 @@ local function empty_or_nil(str)
   return str == nil or str == ""
 end
 
+local ordmonth = {
+  january = 1, jan = 1, february = 2, feb = 2, march = 3, mar = 3, april = 4, apr = 4,
+  may = 5, june = 6, jun = 6, july = 7, jul = 7, august = 8, aug = 8,
+  september = 9, sept = 9, october = 10, oct = 10, november = 11, nov = 11,
+  december = 12, dec = 12,
+}
+
 local function capture_name_to_class_name(name)
   return "hl-" .. (name:gsub("%.", "-"))
 end
@@ -496,16 +503,38 @@ function M.build_changeset(files, opts)
       log("a blog template is empty, blog output could fail or be weird", vim.log.levels.ERROR)
     end
     local post_items = {}
+    local date_extract_pat = "(%w+) *(%d+).*, *(%d+)"
+    local pack = function(...)
+      return { n = select("#", ...), ... }
+    end
     for url, metadata in pairs(page_metadata) do
       if vim.list_contains(metadata.tags, opts.blog.tag) then
-        metadata.url = "/" .. url
-        local post_raw = opts.blog.post_item_template:gsub("::([%w_]+)::", metadata)
-        table.insert(post_items, post_raw)
-        metadata.url = nil
+        table.insert(post_items, { url = url, d = pack(metadata.date:match(date_extract_pat)) })
+        local d = post_items[#post_items].d
+        d[1] = ordmonth[d[1]:lower()] or 0
+        d[2] = tonumber(d[2])
+        d[3] = tonumber(d[3])
       end
     end
 
     if #post_items > 0 then
+      table.sort(post_items, function(a, b)
+        -- compare year > month > day
+        if a.d[3] ~= b.d[3] then
+          return a.d[3] > b.d[3]
+        elseif a.d[1] ~= b.d[1] then
+          return a.d[1] > b.d[1]
+        end
+        return a.d[2] > b.d[2]
+      end)
+      for i, post in ipairs(post_items) do
+        local metadata = page_metadata[post.url]
+        metadata.url = "/" .. post.url
+        local post_raw = opts.blog.post_item_template:gsub("::([%w_]+)::", metadata)
+        post_items[i] = post_raw
+        metadata.url = nil
+      end
+
       local post_item_raw = table.concat(post_items, "\n")
       local blog_page_raw = opts.blog.page_template:gsub("::posts::", post_item_raw)
 
