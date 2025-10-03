@@ -62,7 +62,6 @@ end
 
 local function html_escape(str)
   str = str:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
-  -- todo tabs ??
   return str
 end
 
@@ -438,6 +437,7 @@ function M.build_all(opts)
     return t == "file"
   end, opts)
 
+  -- todo: rss feed gen will probably want to separate build and output writing
   M.build_changeset(files, opts)
 end
 
@@ -490,7 +490,8 @@ function M.build_changeset(files, opts)
 
   -- build and render the blog post list page now that we
   -- know which pages are blog posts
-  if opts.blog.enable and #updated_pages > 0 and should_generate_blog then
+  -- todo: this needs to be able to sort blog posts
+  if opts.blog.enable and #vim.tbl_keys(updated_pages) > 0 and should_generate_blog then
     if empty_or_nil(opts.blog.page_template) or empty_or_nil(opts.blog.post_item_template) then
       log("a blog template is empty, blog output could fail or be weird", vim.log.levels.ERROR)
     end
