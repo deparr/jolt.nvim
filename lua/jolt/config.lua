@@ -9,7 +9,6 @@ M.defaults = {
   content_dir = vim.fs.joinpath(vim.fn.getcwd(), "content"),
   --- maximum depth when scanning content_dir
   depth = 10,
-  template_main_slot = "::slot::",
   default_title = vim.fs.basename(vim.fn.getcwd()),
   default_template = "base",
   ---@type { light: string?, dark: string?, restore: string? } | fun(s: string, g: table<string>): table
@@ -17,6 +16,22 @@ M.defaults = {
     light = "default",
     dark = "default",
     restore = "default",
+  },
+  blog = {
+    --- enabled/disable blog generation
+    enable = false,
+    --- documents with this tag will be added to the post list
+    tag = "blog-post",
+    --- *djot* template string that has a `::posts::` template specifier
+    blog_page_template = "",
+    --- *djot* template string subbed against each post's metadata
+    post_item_template = "",
+    --- the intermediate segments between `/` and `<post-url>`.
+    --- defaults to `"blog"`, which will output final html at `/blog/index.html`
+    ---
+    --- **NOTE: currently does not move tagged posts under this segment.**
+    --- **blog posts should include this as part of their own path**
+    output_url = "blog",
   },
 }
 

@@ -50,6 +50,12 @@ local function add_if_not_present(list, new)
   end
 end
 
+---@param str string
+---@return boolean `true if `str` is nil or empty
+local function empty_or_nil(str)
+  return str == nil or str == ""
+end
+
 local function capture_name_to_class_name(name)
   return "hl-" .. (name:gsub("%.", "-"))
 end
@@ -339,15 +345,15 @@ function M.filter(document, code_styles, opts)
         element.attr.id = element.attr.id:lower()
         -- todo header anchoring?
       end,
-      image = function(element)
-        -- todo I want to wrap images in figures
-        -- element.tag = "raw_block"
-        -- element.format = "html"
-        -- local dest = element.destination
-        -- local alt = element.children[1].text
-        -- element.children = nil
-        -- element.text = ('<figure><img src="%s" alt="%s"></img></figure>'):format(dest, alt)
-      end,
+      -- image = function(element)
+      --   -- todo I want to wrap images in figures
+      --   -- element.tag = "raw_block"
+      --   -- element.format = "html"
+      --   -- local dest = element.destination
+      --   -- local alt = element.children[1].text
+      --   -- element.children = nil
+      --   -- element.text = ('<figure><img src="%s" alt="%s"></img></figure>'):format(dest, alt)
+      -- end,
     },
   }
   djot.filter.apply_filter(document, filters)
@@ -358,12 +364,14 @@ function M.filter(document, code_styles, opts)
 
   ---@diagnostic disable
   --- lua ls doesn't like string -> string[]
-  if metadata.template:find("%,") then
-    metadata.template = vim.split(metadata.template, ",", { trimempty = true })
-  else
-    metadata.template = { metadata.template }
-  end
+  metadata.tags = vim.split(metadata.tags or "", ",", { trimempty = true })
+  metadata.template = vim.split(metadata.template, ",", { trimempty = true })
   ---@diagnostic enable
+
+  if type(metadata.slot) ~= "nil" then
+    log("invalid metadata key 'slot' on page, removing...", vim.log.levels.WARN)
+    metadata.slot = nil
+  end
 
   return metadata
 end
@@ -411,6 +419,7 @@ local page_metadata = {}
 local templates = {}
 local code_styles = {}
 local rendered_pages = {}
+local should_generate_blog = true
 
 ---@param opts? jolt.Config
 function M.build_all(opts)
@@ -443,6 +452,9 @@ function M.build_changeset(files, opts)
   local updated_pages = {}
   local updated_templates = {}
   local static = {}
+  local djot_log = function(a)
+    log("djot: " .. vim.inspect(a, { newline = "" }))
+  end
 
   for file, _ in pairs(files) do
     local ext = vim.fn.fnamemodify(file, ":e")
@@ -452,9 +464,7 @@ function M.build_changeset(files, opts)
 
     if ext == "dj" then
       local raw = load_file(real_path)
-      local ast = djot.parse(raw, false, function(a)
-        log("djot: " .. vim.inspect(a, { newline = "" }))
-      end)
+      local ast = djot.parse(raw, false, djot_log)
       updated_pages[path_noext] = ast
     elseif ext == "html" then
       local templ = load_file(real_path)
@@ -472,14 +482,42 @@ function M.build_changeset(files, opts)
   local new_code_styles = {}
   for url, document in pairs(updated_pages) do
     local metadata = M.filter(document, new_code_styles, opts)
-    if metadata.slot then
-      log(url .. " has invalid metadata key 'slot', clearing", vim.log.levels.WARN)
-      metadata.slot = nil
-    end
     page_metadata[url] = metadata
 
     local rendered = djot.render_html(document)
     rendered_pages[url] = rendered
+  end
+
+  -- build and render the blog post list page now that we
+  -- know which pages are blog posts
+  if opts.blog.enable and should_generate_blog then
+    if empty_or_nil(opts.blog.page_template) or empty_or_nil(opts.blog.post_item_template) then
+      log("a blog template is empty, blog output could fail or be weird", vim.log.levels.ERROR)
+    end
+    local post_items = {}
+    for url, metadata in pairs(page_metadata) do
+      if vim.list_contains(metadata.tags, opts.blog.tag) then
+        metadata.url = "/" .. url
+        local post_raw = opts.blog.post_item_template:gsub("::([%w_]+)::", metadata)
+        table.insert(post_items, post_raw)
+        metadata.url = nil
+      end
+    end
+
+    local post_item_raw = table.concat(post_items, "\n")
+    local blog_page_raw = opts.blog.page_template:gsub("::posts::", post_item_raw)
+
+    local blog_doc = djot.parse(blog_page_raw, false, djot_log)
+    local blog_metadata = M.filter(blog_doc, new_code_styles, opts)
+    local blog_html = djot.render_html(blog_doc)
+
+    page_metadata[opts.blog.output_url] = blog_metadata
+    rendered_pages[opts.blog.output_url] = blog_html
+    updated_pages[opts.blog.output_url] = blog_doc
+
+    -- only generate it on the first build
+    -- todo: work out a sensible way to do partial rebuilds of this
+    should_generate_blog = false
   end
 
   local fully_rendered_pages = {}
@@ -487,7 +525,7 @@ function M.build_changeset(files, opts)
     local metadata = page_metadata[url]
     local rendered = rendered_pages[url]
     for _, template in ipairs(metadata.template) do
-      rendered = templates[template]:gsub(opts.template_main_slot, rendered)
+      rendered = templates[template]:gsub("::slot::", rendered)
       rendered = rendered:gsub("::([%w_]+)::", metadata)
     end
     fully_rendered_pages[url] = rendered
