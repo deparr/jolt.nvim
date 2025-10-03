@@ -314,8 +314,8 @@ function M.filter(document, code_styles, opts)
         local is_internal = element.destination and element.destination:match("^([#/])")
         if is_internal then
           if
-            #element.destination > 1
-            and element.destination:sub(#element.destination, #element.destination) == "/"
+              #element.destination > 1
+              and element.destination:sub(#element.destination, #element.destination) == "/"
           then
             element.destination = element.destination:sub(1, #element.destination - 1)
           end
@@ -490,7 +490,7 @@ function M.build_changeset(files, opts)
 
   -- build and render the blog post list page now that we
   -- know which pages are blog posts
-  if opts.blog.enable and should_generate_blog then
+  if opts.blog.enable and #updated_pages > 0 and should_generate_blog then
     if empty_or_nil(opts.blog.page_template) or empty_or_nil(opts.blog.post_item_template) then
       log("a blog template is empty, blog output could fail or be weird", vim.log.levels.ERROR)
     end
@@ -504,20 +504,22 @@ function M.build_changeset(files, opts)
       end
     end
 
-    local post_item_raw = table.concat(post_items, "\n")
-    local blog_page_raw = opts.blog.page_template:gsub("::posts::", post_item_raw)
+    if #post_items > 0 then
+      local post_item_raw = table.concat(post_items, "\n")
+      local blog_page_raw = opts.blog.page_template:gsub("::posts::", post_item_raw)
 
-    local blog_doc = djot.parse(blog_page_raw, false, djot_log)
-    local blog_metadata = M.filter(blog_doc, new_code_styles, opts)
-    local blog_html = djot.render_html(blog_doc)
+      local blog_doc = djot.parse(blog_page_raw, false, djot_log)
+      local blog_metadata = M.filter(blog_doc, new_code_styles, opts)
+      local blog_html = djot.render_html(blog_doc)
 
-    page_metadata[opts.blog.output_url] = blog_metadata
-    rendered_pages[opts.blog.output_url] = blog_html
-    updated_pages[opts.blog.output_url] = blog_doc
+      page_metadata[opts.blog.output_url] = blog_metadata
+      rendered_pages[opts.blog.output_url] = blog_html
+      updated_pages[opts.blog.output_url] = blog_doc
 
-    -- only generate it on the first build
-    -- todo: work out a sensible way to do partial rebuilds of this
-    should_generate_blog = false
+      -- only generate it on the first build
+      -- todo: work out a sensible way to do partial rebuilds of this
+      should_generate_blog = false
+    end
   end
 
   local fully_rendered_pages = {}
@@ -630,7 +632,7 @@ function M.clean(opts)
     log(("wont remove out dir '%s'"):format(opts.out_dir), vim.log.levels.ERROR)
     return
   end
-    fs.rm(opts.out_dir, { recursive = true, force = true })
+  fs.rm(opts.out_dir, { recursive = true, force = true })
 
   page_metadata = {}
   templates = {}
